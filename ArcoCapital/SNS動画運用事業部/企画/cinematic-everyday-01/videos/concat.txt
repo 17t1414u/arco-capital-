@@ -1,0 +1,3 @@
+file 'C:\Users\17t14\Desktop\Claude\ArcoCapital\SNS動画運用事業部\企画\cinematic-everyday-01\videos\S1.mp4'
+file 'C:\Users\17t14\Desktop\Claude\ArcoCapital\SNS動画運用事業部\企画\cinematic-everyday-01\videos\S2.mp4'
+file 'C:\Users\17t14\Desktop\Claude\ArcoCapital\SNS動画運用事業部\企画\cinematic-everyday-01\videos\S3.mp4'

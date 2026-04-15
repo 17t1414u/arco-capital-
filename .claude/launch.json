@@ -1,0 +1,35 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "infographic",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-l", "3010", "."],
+      "port": 3010
+    },
+    {
+      "name": "Arco Capital HP",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-l", "3001", "ArcoCapital/HP"],
+      "port": 3001
+    },
+    {
+      "name": "Virtual Company (Executive Crew)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["main.py"],
+      "port": 0
+    },
+    {
+      "name": "API Connection Test",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["test_connection.py"],
+      "port": 0
+    },
+    {
+      "name": "Trading Agent (Phase 1 - Alert Monitor)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["trading_main.py", "--phase", "1"],
+      "port": 0
+    }
+  ]
+}

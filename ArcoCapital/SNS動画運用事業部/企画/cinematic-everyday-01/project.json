@@ -1,0 +1,24 @@
+{
+  "mode": "C",
+  "title": "Cinematic Everyday — 日常が映画になる瞬間",
+  "client": "Arco Capital SNS動画運用事業部",
+  "platform": "Instagram Reels",
+  "ratio": "9:16",
+  "segments": 3,
+  "style_line": "Cinematic realism, 35mm film look, shallow depth of field, film grain.",
+  "characters": [
+    {
+      "name": "Woman (hands/silhouette only)",
+      "segments": ["S1", "S2", "S3"],
+      "asset_strategy": "text-only",
+      "justification": "Face never shown — hands and silhouette only, no privacy detection risk"
+    }
+  ],
+  "shots": [
+    {"id": "S1", "status": "pending", "task_id": null, "video_url": null},
+    {"id": "S2", "status": "pending", "task_id": null, "video_url": null},
+    {"id": "S3", "status": "pending", "task_id": null, "video_url": null}
+  ],
+  "generation_strategy": "parallel",
+  "created_at": "2026-04-05"
+}

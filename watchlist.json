@@ -1,0 +1,5 @@
+{
+  "tickers": ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN"],
+  "description": "Phase 1 initial watchlist — 5 large-cap US stocks",
+  "notes": "Add/remove tickers here. Max size controlled by MAX_WATCHLIST_SIZE in .env"
+}
