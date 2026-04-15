@@ -140,6 +140,12 @@ class _Settings:
         """X アカウントハンドル（@ なし）"""
         return os.getenv("X_ACCOUNT_HANDLE", "RR1420597468366")
 
+    # ── Google AI (Nano Banana Pro) ────────────────────────────────────────────
+    @property
+    def google_api_key(self) -> str:
+        """Google AI Studio API Key（Nano Banana Pro 画像生成用）"""
+        return os.getenv("GOOGLE_API_KEY", "")
+
     # ── 資産運用事業部 ──────────────────────────────────────────────────────────
     @property
     def investment_division_dir(self) -> Path:
