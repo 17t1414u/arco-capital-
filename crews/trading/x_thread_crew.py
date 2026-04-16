@@ -1,23 +1,48 @@
 """
 XInvestmentThreadCrew — X投資スレッド自動投稿クルー（リアルデータ版）
 
-【絶対条件】チャート・決算・数字はすべて実データに基づく。架空の数値は一切禁止。
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【コンテンツ品質ルール】— 過去のフィードバックを永続化
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-毎朝7:30 JSTに実行し、5投稿のリプライチェーンを作成する。
+■ 文章スタイル（絶対ルール）
+  - 数字は「根拠」であり「見出し」ではない。冒頭から数字を羅列しない
+  - 「なぜ？」「だから何？」を優先し、数字はその答えの補強に使う
+  - 1投稿に数字は最大2〜3個。それ以上は言葉に置き換える
+  - 友人に話しかけるように砕けた日本語で、でも内容は本質を突く
+  - 自分の意見・判断として語る（「自分なら〜」「こう見てる」）
+  - 不確かなことは「〜かもしれない」「〜の可能性が高い」と断言しない
 
-スレッド構造（実データ駆動）:
-  投稿1 HOOK:     「【速報】$XX 本日+X.X%急騰📈 なぜ？」+ リアルローソク足チャート
-  投稿2 背景:     今日の実際のニュース・材料（Alpacaニュースより）
-  投稿3 深掘り:   出来高・セクター動向・機関投資家の動き（実データ）
-  投稿4 TA分析:   RSI/MACD/サポート・レジスタンス（実チャート分析）
-  投稿5 戦略:     エントリーポイント・損切・利確ライン + CTA
+■ データ整合性（絶対ルール）
+  - 提供されていない数値を創作することは一切禁止
+  - 使う数値はすべて提供済みの実データから引用（全部使う必要はない）
+  - ニュースはAlpacaからではなく Yahoo Finance RSS / Reuters / MooMoo /
+    Bloomberg などの公式ソースから取得する
 
-フロー:
-  1. 当日トップムーバー自動選定 (yfinance)
-  2. ニュース収集 (Alpaca NewsClient)
-  3. 実データからチャート生成 (mplfinance)
-  4. 実数値をClaudeに渡して台本生成
-  5. X投稿 (tweepy / Chrome fallback)
+■ 画像生成ルール
+  - AI生成アート・インフォグラフィックは使用しない（Nano Banana廃止）
+  - 全チャートはmatplotlib / mplfinanceで実データから生成する
+  - ビジネス構造スライド（post2/post5）はマトリクス・テーブル形式
+  - チャートのテキストは極力排除（タイトル・軸ラベル・凡例は最小限）
+  - 文字化けは許容しない → Meiryo フォントを FontProperties で明示指定
+  - チャートの時間軸は長く（6ヶ月）。ズームインしすぎない
+  - x軸ラベルは月単位（YYYY/MM）、月が変わる最初の日のみ表示
+
+■ チャート構成
+  post1: ローソク足 + ボリンジャーバンド + 出来高（6ヶ月）
+  post2: ビジネス構造スライド「変動要因3カラム分析」
+  post3: ローソク足 + 出来高比較チャート（60日）
+  post4: RSI + MACD テクニカル（60日・3パネル）
+  post5: ビジネス構造スライド「トレード戦略マトリクス（テーブル）」
+
+■ 5投稿の役割
+  1. HOOK:   数字より「状況の面白さ」で引く。次が読みたくなる導入
+  2. WHY:    ニュースを引用しつつ「つまりこういうこと」と噛み砕く
+  3. HOW:    出来高・指標を「機関投資家が何をしていたか」視点で語る
+  4. TA:     2つのシナリオ（強気/弱気）。数字は方向感の根拠に1〜2個だけ
+  5. ACTION: 「自分ならこうする」という個人の判断として伝える
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 使用例:
     crew = XInvestmentThreadCrew(dry_run=True)   # 確認のみ
@@ -48,6 +73,7 @@ def _setup_jp_font() -> str:
         r"C:\Windows\Fonts\meiryo.ttc",
         r"C:\Windows\Fonts\YuGothM.ttc",
         r"C:\Windows\Fonts\msgothic.ttc",
+        r"C:\Windows\Fonts\meiryob.ttc",
         r"C:\Windows\Fonts\yumin.ttf",
     ]
     for path in font_paths:
@@ -57,18 +83,28 @@ def _setup_jp_font() -> str:
                 _fm.fontManager.addfont(path)
                 prop = _fm.FontProperties(fname=path)
                 fname = prop.get_name()
-                matplotlib.rcParams["font.family"] = fname
+                # フォントキャッシュを強制更新
+                _fm.findfont(prop, rebuild_if_missing=True)
+                matplotlib.rcParams["font.family"] = [fname, "sans-serif"]
+                matplotlib.rcParams["font.sans-serif"] = [fname, "DejaVu Sans"]
                 matplotlib.rcParams["axes.unicode_minus"] = False
                 return fname
         except Exception:
             continue
-    # フォールバック: 英語ラベルのみ使用
     matplotlib.rcParams["axes.unicode_minus"] = False
     return ""
 
 _JP_FONT = _setup_jp_font()
 
 from config.settings import settings
+# 統一フォーマット + 2026年Xアルゴリズム戦略: x_theme_crew.py とビジュアルを揃える
+from crews.trading.x_theme_crew import (
+    BOLD_INSIGHT,
+    BOLD_DIGITS,
+    THREAD_DIVIDER,
+    format_post_text,
+    ensure_discussion_question,
+)
 
 # ブランドカラー
 BRAND_DARK  = "#0A0F1E"
@@ -127,7 +163,7 @@ class XInvestmentThreadCrew:
 
         # STEP 3: チャート生成
         print("📈 STEP 3/5: リアルチャート生成中 (mplfinance)...\n")
-        chart_paths = self._generate_charts(ticker, market_data)
+        chart_paths = self._generate_charts(ticker, market_data, news_items)
         print(f"   → {sum(1 for p in chart_paths if p)}枚のチャートを生成\n")
 
         # STEP 4: 台本生成
@@ -205,7 +241,7 @@ class XInvestmentThreadCrew:
         import yfinance as yf
 
         stock = yf.Ticker(ticker)
-        df = stock.history(period="3mo", interval="1d")
+        df = stock.history(period="6mo", interval="1d")
         if df.empty or len(df) < 20:
             raise ValueError(f"{ticker}: データ不足")
 
@@ -443,44 +479,40 @@ class XInvestmentThreadCrew:
     # STEP 3: チャート生成（実データ使用）
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _generate_charts(self, ticker: str, market_data: dict) -> list[Optional[str]]:
+    def _generate_charts(
+        self, ticker: str, market_data: dict, news_items: list[dict]
+    ) -> list[Optional[str]]:
         """
         実データからチャートを5枚生成する。
-        投稿1,3,4は実チャート。投稿2,5はNano Banana。
+        全て実データ／構造化ビジネスグラフィック。
+        投稿1: ローソク足+BB（6ヶ月）
+        投稿2: ビジネス構造スライド「変動要因分析」
+        投稿3: 出来高分析チャート（60日）
+        投稿4: RSI+MACDテクニカル（60日）
+        投稿5: ビジネス構造スライド「トレード戦略マトリクス」
         """
         df = market_data["df"]
         paths: list[Optional[str]] = []
 
-        # 投稿1: ローソク足 + 出来高 + ボリンジャーバンド（60日）
-        print("   📊 chart1: ローソク足+BB+出来高...")
+        # 投稿1: ローソク足 + BB + 出来高（6ヶ月）
+        print("   📊 chart1: ローソク足+BB（6ヶ月）...")
         paths.append(self._chart_candle_bb(ticker, df, market_data))
 
-        # 投稿2: Nano Banana（ニュース背景イメージ）
-        print("   🎨 chart2: Nano Banana（ニュース背景）...")
-        paths.append(self._generate_nano_banana_image(
-            2, ticker,
-            f"Breaking financial news about {ticker} stock, "
-            "newspaper headlines, stock trading floor, urgent atmosphere, "
-            "dark navy background, cyan accents"
-        ))
+        # 投稿2: ビジネス構造スライド「変動要因分析」
+        print("   📊 chart2: ビジネス構造スライド（変動要因）...")
+        paths.append(self._chart_business_why(ticker, market_data, news_items))
 
-        # 投稿3: ローソク足 + 出来高比較（20日平均線付き）
-        print("   📊 chart3: 出来高比較チャート...")
+        # 投稿3: 出来高分析チャート（60日）
+        print("   📊 chart3: 出来高分析チャート（60日）...")
         paths.append(self._chart_volume_analysis(ticker, df, market_data))
 
-        # 投稿4: RSI + MACD テクニカルチャート
+        # 投稿4: RSI+MACDテクニカル（60日）
         print("   📊 chart4: RSI+MACDテクニカル...")
         paths.append(self._chart_technical(ticker, df, market_data))
 
-        # 投稿5: Nano Banana（投資戦略イメージ）
-        print("   🎨 chart5: Nano Banana（投資戦略）...")
-        paths.append(self._generate_nano_banana_image(
-            5, ticker,
-            f"Investment strategy and stock trading, "
-            "financial chart with entry and exit points, "
-            "stop loss and take profit lines, professional trader mindset, "
-            "dark navy background, gold accents, minimal text"
-        ))
+        # 投稿5: ビジネス構造スライド「トレード戦略マトリクス」
+        print("   📊 chart5: ビジネス構造スライド（戦略マトリクス）...")
+        paths.append(self._chart_business_strategy(ticker, market_data))
 
         return paths
 
@@ -489,15 +521,16 @@ class XInvestmentThreadCrew:
         try:
             import mplfinance as mpf
 
-            df60 = df.tail(60).copy()
+            n_days = min(126, len(df))  # 最大6ヶ月（約126取引日）
+            df60 = df.tail(n_days).copy()
 
             # ボリンジャーバンド
-            bb_mid = df["Close"].rolling(20).mean().tail(60)
-            bb_std = df["Close"].rolling(20).std().tail(60)
+            bb_mid = df["Close"].rolling(20).mean().tail(n_days)
+            bb_std = df["Close"].rolling(20).std().tail(n_days)
             bb_upper = bb_mid + 2 * bb_std
             bb_lower = bb_mid - 2 * bb_std
-            sma20 = df["Close"].rolling(20).mean().tail(60)
-            sma50 = df["Close"].rolling(50).mean().tail(60)
+            sma20 = df["Close"].rolling(20).mean().tail(n_days)
+            sma50 = df["Close"].rolling(50).mean().tail(n_days)
 
             apds = [
                 mpf.make_addplot(bb_upper, color=BRAND_CYAN, linestyle="--",
@@ -513,7 +546,6 @@ class XInvestmentThreadCrew:
                                      width=1.0)
                 )
 
-            change_str = f"{market_data['change_pct']:+.2f}%"
             style = mpf.make_mpf_style(
                 base_mpf_style="nightclouds",
                 facecolor=BRAND_DARK,
@@ -537,15 +569,15 @@ class XInvestmentThreadCrew:
                 volume=True,
                 addplot=apds,
                 style=style,
-                title=f"  ${ticker}  {market_data['close']:.2f} ({change_str})  ─ 60日チャート",
-                ylabel="Price (USD)",
-                ylabel_lower="Volume",
                 figsize=(12, 7),
                 returnfig=True,
                 tight_layout=True,
+                axisoff=False,
             )
-            # タイトル色
-            fig.axes[0].title.set_color(BRAND_WHITE)
+            # 軸ラベル・タイトルを非表示
+            for ax in fig.axes:
+                ax.set_ylabel("")
+                ax.set_xlabel("")
             fig.savefig(tmp.name, dpi=150, facecolor=BRAND_DARK, bbox_inches="tight")
             plt.close(fig)
             return tmp.name
@@ -555,60 +587,61 @@ class XInvestmentThreadCrew:
             return None
 
     def _chart_volume_analysis(self, ticker: str, df, market_data: dict) -> Optional[str]:
-        """出来高分析チャート（20日平均との比較）"""
+        """出来高分析チャート（60日・20日平均比較）"""
         try:
-            df20 = df.tail(20).copy()
-            avg_vol = df["Volume"].rolling(20).mean().tail(20)
+            n = min(60, len(df))
+            df_n = df.tail(n).copy()
+            avg_vol = df["Volume"].rolling(20).mean().tail(n)
 
             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 7),
                                             gridspec_kw={"height_ratios": [3, 1]},
                                             facecolor=BRAND_DARK)
             fig.subplots_adjust(hspace=0.05)
 
-            dates = df20.index
+            dates = df_n.index
             x = np.arange(len(dates))
 
             # ローソク足
-            for i, (idx, row) in enumerate(df20.iterrows()):
+            for i, (idx, row) in enumerate(df_n.iterrows()):
                 color = BRAND_GREEN if row["Close"] >= row["Open"] else BRAND_RED
-                ax1.plot([i, i], [row["Low"], row["High"]], color=color, linewidth=1)
+                ax1.plot([i, i], [row["Low"], row["High"]], color=color, linewidth=0.8)
                 ax1.bar(i, abs(row["Close"] - row["Open"]),
                         bottom=min(row["Open"], row["Close"]),
                         color=color, width=0.7, alpha=0.85)
 
             # SMA20
-            sma20 = df["Close"].rolling(20).mean().tail(20)
-            ax1.plot(x, sma20.values, color=BRAND_GOLD, linewidth=1.2,
-                     linestyle="--", label="SMA20")
+            sma20 = df["Close"].rolling(20).mean().tail(n)
+            ax1.plot(x, sma20.values, color=BRAND_GOLD, linewidth=1.0, linestyle="--")
             ax1.set_facecolor(BRAND_DARK)
-            ax1.set_title(f"${ticker} — 出来高分析 (20日)", color=BRAND_WHITE, fontsize=13)
-            ax1.set_ylabel("Price (USD)", color=BRAND_WHITE)
-            ax1.tick_params(colors=BRAND_WHITE, labelbottom=False)
-            ax1.legend(facecolor="#1A2030", labelcolor=BRAND_WHITE, fontsize=9)
+            ax1.tick_params(colors=BRAND_WHITE, labelbottom=False, labelsize=8)
+            ax1.set_ylabel("")
+            ax1.set_xlabel("")
             ax1.spines[:].set_color("#333344")
             ax1.grid(color="#1A2030", linestyle="--", alpha=0.5)
 
-            # 出来高バー
-            vol_colors = [BRAND_GREEN if df20["Close"].iloc[i] >= df20["Open"].iloc[i]
-                          else BRAND_RED for i in range(len(df20))]
-            ax2.bar(x, df20["Volume"].values, color=vol_colors, alpha=0.8, width=0.7)
-            ax2.plot(x, avg_vol.values, color=BRAND_GOLD, linewidth=1.2,
-                     linestyle="--", label=f"20日平均: {market_data['avg_volume_20']:,.0f}")
+            # 出来高バー（x軸に日付を表示）
+            vol_colors = [BRAND_GREEN if df_n["Close"].iloc[i] >= df_n["Open"].iloc[i]
+                          else BRAND_RED for i in range(len(df_n))]
+            ax2.bar(x, df_n["Volume"].values, color=vol_colors, alpha=0.8, width=0.7)
+            ax2.plot(x, avg_vol.values, color=BRAND_GOLD, linewidth=1.0, linestyle="--")
             ax2.set_facecolor(BRAND_DARK)
-            ax2.set_ylabel("Volume", color=BRAND_WHITE, fontsize=9)
-            ax2.tick_params(colors=BRAND_WHITE)
-            ax2.legend(facecolor="#1A2030", labelcolor=BRAND_WHITE, fontsize=8)
+            ax2.set_ylabel("")
+            ax2.set_xlabel("")
+            # x軸: 月が変わった最初の日のみ表示（重複防止）
+            seen_months2, tick_positions = set(), []
+            for i, d in enumerate(dates):
+                if hasattr(d, 'month') and d.month not in seen_months2:
+                    seen_months2.add(d.month)
+                    tick_positions.append(i)
+            tick_labels = [dates[i].strftime("%Y/%m") for i in tick_positions]
+            ax2.set_xticks(tick_positions)
+            ax2.set_xticklabels(tick_labels, rotation=0, ha='center',
+                                color=BRAND_WHITE, fontsize=8)
+            ax2.tick_params(colors=BRAND_WHITE, labelsize=8)
+            ax2.yaxis.set_major_formatter(
+                matplotlib.ticker.FuncFormatter(lambda v, _: f"{v/1e6:.0f}M"))
             ax2.spines[:].set_color("#333344")
             ax2.grid(color="#1A2030", linestyle="--", alpha=0.5)
-
-            # テキスト注釈
-            vol_ratio = market_data["volume_ratio"]
-            ax2.text(0.98, 0.85,
-                     f"本日出来高: {market_data['volume']:,.0f}\n"
-                     f"平均比: {vol_ratio:.1f}x",
-                     transform=ax2.transAxes, ha="right", va="top",
-                     color=BRAND_CYAN, fontsize=9,
-                     bbox=dict(facecolor="#1A2030", alpha=0.8, edgecolor=BRAND_CYAN))
 
             tmp = tempfile.NamedTemporaryFile(suffix=f"_{ticker}_chart3.png", delete=False)
             tmp.close()
@@ -655,14 +688,9 @@ class XInvestmentThreadCrew:
                         color=color, width=0.7, alpha=0.85)
 
             ax1.set_facecolor(BRAND_DARK)
-            ax1.set_title(
-                f"${ticker} テクニカル分析  "
-                f"RSI={market_data['rsi']:.1f}  "
-                f"MACD={'🟢強気' if market_data['macd_hist'] > 0 else '🔴弱気'}",
-                color=BRAND_WHITE, fontsize=12
-            )
-            ax1.set_ylabel("Price (USD)", color=BRAND_WHITE)
-            ax1.tick_params(colors=BRAND_WHITE, labelbottom=False)
+            ax1.set_ylabel("")
+            ax1.set_xlabel("")
+            ax1.tick_params(colors=BRAND_WHITE, labelbottom=False, labelsize=8)
             ax1.spines[:].set_color("#333344")
             ax1.grid(color="#1A2030", linestyle="--", alpha=0.4)
 
@@ -676,27 +704,36 @@ class XInvestmentThreadCrew:
                              where=(rsi.values <= 30), color=BRAND_GREEN, alpha=0.2)
             ax2.set_ylim(0, 100)
             ax2.set_facecolor(BRAND_DARK)
-            ax2.set_ylabel("RSI(14)", color=BRAND_WHITE, fontsize=9)
-            ax2.tick_params(colors=BRAND_WHITE, labelbottom=False)
-            ax2.text(0.99, 0.85, f"RSI: {market_data['rsi']:.1f}",
-                     transform=ax2.transAxes, ha="right",
-                     color=BRAND_CYAN, fontsize=10)
+            ax2.set_ylabel("RSI", color=BRAND_WHITE, fontsize=8)
+            ax2.set_xlabel("")
+            ax2.tick_params(colors=BRAND_WHITE, labelbottom=False, labelsize=7)
             ax2.spines[:].set_color("#333344")
             ax2.grid(color="#1A2030", linestyle="--", alpha=0.4)
 
             # MACD
             hist_colors = [BRAND_GREEN if v > 0 else BRAND_RED for v in hist.values]
             ax3.bar(x, hist.values, color=hist_colors, alpha=0.7, width=0.7)
-            ax3.plot(x, macd.values,  color=BRAND_CYAN,  linewidth=1.0, label="MACD")
-            ax3.plot(x, sig.values,   color=BRAND_GOLD,  linewidth=1.0, label="Signal")
+            ax3.plot(x, macd.values, color=BRAND_CYAN, linewidth=1.0)
+            ax3.plot(x, sig.values,  color=BRAND_GOLD, linewidth=1.0)
             ax3.axhline(0, color="#555566", linewidth=0.5)
             ax3.set_facecolor(BRAND_DARK)
-            ax3.set_ylabel("MACD(12,26,9)", color=BRAND_WHITE, fontsize=9)
-            ax3.tick_params(colors=BRAND_WHITE)
-            ax3.legend(facecolor="#1A2030", labelcolor=BRAND_WHITE, fontsize=8,
-                       loc="upper left")
+            ax3.set_ylabel("MACD", color=BRAND_WHITE, fontsize=8)
+            ax3.set_xlabel("")
             ax3.spines[:].set_color("#333344")
             ax3.grid(color="#1A2030", linestyle="--", alpha=0.4)
+            # x軸: 月が変わった最初の日のみ表示（重複防止）
+            dates60 = df60.index
+            seen_months, tick_pos = set(), []
+            for i, d in enumerate(dates60):
+                if hasattr(d, 'month') and d.month not in seen_months:
+                    seen_months.add(d.month)
+                    tick_pos.append(i)
+            ax3.set_xticks(tick_pos)
+            ax3.set_xticklabels(
+                [dates60[i].strftime("%Y/%m") for i in tick_pos],
+                rotation=0, ha='center', color=BRAND_WHITE, fontsize=8
+            )
+            ax3.tick_params(colors=BRAND_WHITE, labelsize=8)
 
             tmp = tempfile.NamedTemporaryFile(suffix=f"_{ticker}_chart4.png", delete=False)
             tmp.close()
@@ -721,11 +758,12 @@ class XInvestmentThreadCrew:
             client = genai.Client(api_key=api_key)
             full_prompt = (
                 f"{prompt}. "
-                f"Context: {ticker} stock investment content. "
-                f"Style: premium financial infographic. "
-                f"Background: dark navy ({BRAND_DARK}). "
-                f"Accent colors: cyan ({BRAND_CYAN}), gold ({BRAND_GOLD}). "
-                "Clean, modern, professional. No text overlay. 16:9 aspect ratio."
+                f"Style: cinematic premium financial art, photorealistic. "
+                f"Background: dark navy deep space ({BRAND_DARK}). "
+                f"Accent colors: electric cyan ({BRAND_CYAN}), gold ({BRAND_GOLD}). "
+                "CRITICAL: absolutely NO text, NO words, NO letters, NO numbers, "
+                "NO labels, NO captions anywhere in the image. Pure visual only. "
+                "16:9 aspect ratio, ultra high quality."
             )
 
             response = client.models.generate_content(
@@ -749,6 +787,293 @@ class XInvestmentThreadCrew:
             return None
         except Exception as e:
             print(f"      ⚠️ Nano Banana エラー (post {idx}): {e}")
+            return None
+
+    def _build_why_summaries(
+        self, ticker: str, market_data: dict, news_items: list[dict]
+    ) -> list[dict]:
+        """
+        Claude Haiku を使って英語ニュースから3視点の日本語要約を生成する。
+        角度: 主因 / 背景 / 補足（テクニカル）
+        戻り値: [{"angle": "主因", "summary": "...", "source": "..."}, ...]
+        """
+        import anthropic
+        news_text = "\n".join(
+            f"- [{n['source']}] {n['headline']}" for n in news_items[:12]
+        )
+        chg = market_data["change_pct"]
+        direction = "上昇" if chg >= 0 else "下落"
+
+        prompt = f"""${ticker} が本日{chg:+.1f}%{direction}しました。
+以下のニュース・データをもとに、3つの異なる視点で日本語の要約を作成してください。
+
+ニュース:
+{news_text}
+
+テクニカルデータ:
+- RSI: {market_data['rsi']:.0f}
+- 出来高: 20日平均比 {market_data['volume_ratio']:.1f}x
+- SMA20: ${market_data['sma20']:.0f}
+
+以下のJSON形式のみで返してください（説明不要）:
+[
+  {{"angle": "主因", "summary": "直接のトリガーを15字以内の日本語で", "source": "情報源名（英語可）"}},
+  {{"angle": "背景", "summary": "市場・セクターの文脈を15字以内の日本語で", "source": "情報源名（英語可）"}},
+  {{"angle": "テクニカル", "summary": "チャート・出来高の状況を15字以内の日本語で", "source": "テクニカル分析"}}
+]"""
+
+        try:
+            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            msg = client.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=400,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = msg.content[0].text.strip()
+            if "```" in raw:
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+                raw = raw.strip()
+            return json.loads(raw)
+        except Exception as e:
+            print(f"      ⚠️ WHY要約生成エラー: {e}")
+            # フォールバック: 生ニュースをそのまま使用
+            fallback = []
+            for i, label in enumerate(["主因", "背景", "補足"]):
+                n = news_items[i] if i < len(news_items) else {"headline": "—", "source": ""}
+                fallback.append({
+                    "angle": label,
+                    "summary": n["headline"][:30],
+                    "source": n.get("source", ""),
+                })
+            return fallback
+
+    def _chart_business_why(
+        self, ticker: str, market_data: dict, news_items: list[dict]
+    ) -> Optional[str]:
+        """
+        ビジネス構造スライド: 変動要因分析（3カラムマトリクス）
+        ニュースをClaude Haikuで日本語3視点サマリーに変換して表示。
+        """
+        try:
+            from matplotlib.font_manager import FontProperties
+            fp = FontProperties(family=_JP_FONT) if _JP_FONT else None
+
+            # Claude Haiku で日本語3視点要約を生成
+            summaries = self._build_why_summaries(ticker, market_data, news_items)
+
+            def t(ax, x, y, s, **kw):
+                kw.setdefault("color", BRAND_WHITE)
+                kw.setdefault("va", "center")
+                if fp:
+                    kw["fontproperties"] = fp
+                ax.text(x, y, s, **kw)
+
+            fig, ax = plt.subplots(figsize=(12, 7), facecolor=BRAND_DARK)
+            ax.set_facecolor(BRAND_DARK)
+            ax.set_xlim(0, 12)
+            ax.set_ylim(0, 10)
+            ax.axis("off")
+
+            chg = market_data["change_pct"]
+            arrow = "▲" if chg >= 0 else "▼"
+            chg_color = BRAND_GREEN if chg >= 0 else BRAND_RED
+
+            # ── ヘッダー ───────────────────────────────────────────────
+            t(ax, 6, 9.4, f"${ticker}  変動要因分析",
+              ha="center", fontsize=17, fontweight="bold", color=BRAND_CYAN)
+            t(ax, 6, 8.85,
+              f"本日: {arrow}{abs(chg):.1f}%  ─  "
+              f"RSI {market_data['rsi']:.0f}  ─  "
+              f"出来高 {market_data['volume_ratio']:.1f}x（20日平均比）",
+              ha="center", fontsize=10, color="#AABBCC")
+            ax.axhline(8.5, color=BRAND_CYAN, linewidth=0.8,
+                       alpha=0.4, xmin=0.02, xmax=0.98)
+
+            # ── 3カラムボックス ────────────────────────────────────────
+            col_colors = [chg_color, "#FF8C00", BRAND_CYAN]
+            box_left   = [0.25, 4.25, 8.25]
+
+            for col, (bl, item) in enumerate(zip(box_left, summaries)):
+                bw, bh = 3.5, 5.5
+                by = 2.2
+                angle   = item.get("angle", "")
+                summary = item.get("summary", "")
+                source  = item.get("source", "")[:18]
+
+                # ボックス枠
+                ax.add_patch(plt.Rectangle(
+                    (bl, by), bw, bh,
+                    facecolor="#0D1525", edgecolor=col_colors[col],
+                    linewidth=1.8, zorder=2
+                ))
+                # ラベルバッジ
+                ax.add_patch(plt.Rectangle(
+                    (bl, by + bh - 0.7), bw, 0.7,
+                    facecolor=col_colors[col], zorder=3
+                ))
+                t(ax, bl + bw / 2, by + bh - 0.35, angle,
+                  ha="center", fontsize=11, fontweight="bold",
+                  color=BRAND_DARK, zorder=4)
+
+                # ソース（最初の単語だけ表示）
+                src_short = source.split(" - ")[0].split("/")[0].strip()[:14]
+                t(ax, bl + 0.2, by + bh - 1.15, f"[ {src_short} ]",
+                  fontsize=8, color="#8899AA")
+
+                # 日本語サマリー（14文字で折り返し、最大3行）
+                lines = [summary[i:i+14] for i in range(0, len(summary), 14)]
+                for li, line in enumerate(lines[:3]):
+                    t(ax, bl + 0.25, by + bh - 1.95 - li * 1.1,
+                      line, fontsize=12, color=BRAND_WHITE)
+
+            # ── フッター ───────────────────────────────────────────────
+            # 使用されたソース一覧を収集
+            used_sources = list(dict.fromkeys(
+                s.get("source", "") for s in summaries if s.get("source")
+            ))
+            sources_str = " / ".join(used_sources) if used_sources else "Yahoo Finance / Reuters / Bloomberg"
+            ax.axhline(1.9, color="#2A3040", linewidth=0.5, xmin=0.02, xmax=0.98)
+            t(ax, 6, 1.35,
+              f"Source: {sources_str}  ─  {date.today().strftime('%Y/%m/%d')}",
+              ha="center", fontsize=8, color="#555566")
+            t(ax, 6, 0.7,
+              "Arco Capital — 資産運用事業部",
+              ha="center", fontsize=8, color="#333344", fontweight="bold")
+
+            tmp = tempfile.NamedTemporaryFile(
+                suffix=f"_{ticker}_chart2.png", delete=False)
+            tmp.close()
+            fig.savefig(tmp.name, dpi=150, facecolor=BRAND_DARK,
+                        bbox_inches="tight")
+            plt.close(fig)
+            return tmp.name
+
+        except Exception as e:
+            print(f"      ⚠️ chart2(business_why) エラー: {e}")
+            return None
+
+    def _chart_business_strategy(
+        self, ticker: str, market_data: dict
+    ) -> Optional[str]:
+        """
+        ビジネス構造スライド: トレード戦略マトリクス（テーブル形式）
+        """
+        try:
+            from matplotlib.font_manager import FontProperties
+            fp = FontProperties(family=_JP_FONT) if _JP_FONT else None
+
+            def t(ax, x, y, s, **kw):
+                kw.setdefault("color", BRAND_WHITE)
+                kw.setdefault("va", "center")
+                if fp:
+                    kw["fontproperties"] = fp
+                ax.text(x, y, s, **kw)
+
+            fig, ax = plt.subplots(figsize=(12, 7), facecolor=BRAND_DARK)
+            ax.set_facecolor(BRAND_DARK)
+            ax.set_xlim(0, 12)
+            ax.set_ylim(0, 10)
+            ax.axis("off")
+
+            d = market_data
+
+            # ── ヘッダー ───────────────────────────────────────────────
+            t(ax, 6, 9.4, f"${ticker}  トレード戦略マトリクス",
+              ha="center", fontsize=17, fontweight="bold", color=BRAND_GOLD)
+            t(ax, 6, 8.85,
+              f"現在値 ${d['close']:.2f}  ─  "
+              f"SMA20 ${d['sma20']:.0f}  ─  "
+              f"52週レンジ ${d['low_52w']:.0f} - ${d['high_52w']:.0f}",
+              ha="center", fontsize=10, color="#AABBCC")
+            ax.axhline(8.5, color=BRAND_GOLD, linewidth=0.8,
+                       alpha=0.4, xmin=0.02, xmax=0.98)
+
+            # ── テーブルヘッダー行 ─────────────────────────────────────
+            cols_x = [0.4, 3.0, 6.0, 9.5]
+            col_headers = ["アクション", "価格帯", "判断条件", "優先度"]
+            col_widths   = [2.4, 2.8, 3.3, 2.2]
+
+            header_y = 8.0
+            header_bg = plt.Rectangle(
+                (0.2, header_y - 0.35), 11.6, 0.7,
+                facecolor="#1A2A3A", edgecolor=BRAND_GOLD, linewidth=1.0
+            )
+            ax.add_patch(header_bg)
+            for cx, ch in zip(cols_x, col_headers):
+                t(ax, cx, header_y, ch,
+                  fontsize=10, fontweight="bold", color=BRAND_GOLD)
+
+            # ── テーブルデータ行 ───────────────────────────────────────
+            entry_lo = d["sma20"] * 0.99
+            entry_hi = d["sma20"] * 1.03
+            sl_price = d["sma50"] * 0.98 if not np.isnan(d.get("sma50", float("nan"))) \
+                       else d["sma20"] * 0.94
+
+            # (ラベル, 価格, 条件, 優先度, 背景色, 枠色, ドット色)
+            rows = [
+                ("エントリー検討",
+                 f"${entry_lo:.0f} - ${entry_hi:.0f}",
+                 "SMA20近辺での出来高増加反発",
+                 "★★★",
+                 "#FFD70018", BRAND_GOLD, BRAND_GOLD),
+                ("損切りライン",
+                 f"${sl_price:.0f} 割れ",
+                 "SMA50下抜け＋出来高増加確認",
+                 "★★★",
+                 "#FF444418", BRAND_RED, BRAND_RED),
+                ("利確ライン 1",
+                 f"${d['high_52w']:.0f}",
+                 "52週高値更新・勢い継続確認",
+                 "★★",
+                 "#00CC6618", BRAND_GREEN, BRAND_GREEN),
+                ("利確ライン 2",
+                 f"${d['bb_upper']:.0f} 付近",
+                 "ボリバン上限・RSI過熱域到達",
+                 "★",
+                 "#00996618", "#00AA55", "#00AA55"),
+            ]
+
+            row_h = 1.3
+            for ri, (action, price, cond, prio, bg_col, edge_col, dot_col) in enumerate(rows):
+                ry = header_y - 0.65 - (ri + 1) * row_h
+                row_bg = plt.Rectangle(
+                    (0.2, ry - 0.45), 11.6, row_h - 0.05,
+                    facecolor=bg_col, edgecolor=edge_col,
+                    linewidth=0.8, linestyle="--"
+                )
+                ax.add_patch(row_bg)
+                # 色ドット（絵文字の代わり）— 各行の左端に配置
+                dot = plt.Circle((0.35, ry), 0.16,
+                                 color=dot_col, zorder=4)
+                ax.add_patch(dot)
+
+                vals = [action, price, cond, prio]
+                for cx, val in zip(cols_x, vals):
+                    t(ax, cx, ry, val, fontsize=9.5, color=BRAND_WHITE)
+
+            # ── フッター ───────────────────────────────────────────────
+            footer_y = header_y - 0.65 - len(rows) * row_h - 0.3
+            ax.axhline(footer_y, color="#2A3040", linewidth=0.5,
+                       xmin=0.02, xmax=0.98)
+            t(ax, 6, footer_y - 0.5,
+              f"RSI {d['rsi']:.0f}  |  "
+              f"MACD {'強気' if d['macd_hist'] > 0 else '弱気'}  |  "
+              f"ボリバン下限 ${d['bb_lower']:.0f}  ─  "
+              f"{date.today().strftime('%Y/%m/%d')}  Arco Capital",
+              ha="center", fontsize=8, color="#555566")
+
+            tmp = tempfile.NamedTemporaryFile(
+                suffix=f"_{ticker}_chart5.png", delete=False)
+            tmp.close()
+            fig.savefig(tmp.name, dpi=150, facecolor=BRAND_DARK,
+                        bbox_inches="tight")
+            plt.close(fig)
+            return tmp.name
+
+        except Exception as e:
+            print(f"      ⚠️ chart5(business_strategy) エラー: {e}")
             return None
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -789,24 +1114,60 @@ class XInvestmentThreadCrew:
             f"- [{n['source']}] {n['headline']}" for n in news_items[:6]
         ) or "ニュースなし"
 
-        system_prompt = """あなたはArco Capitalの投資アナリストです。
-提供された「実データ」のみを使用してXスレッドを作成してください。
+        system_prompt = """あなたはArco Capitalのシニアアナリスト兼Xコンテンツ戦略家です。
+2026年版Xアルゴリズム（Grok AI統合、Rust基盤、6000特徴量の本ランキング）に完全最適化された個別銘柄デイリースレッドを制作します。
 
-【絶対ルール】
-- 提供されていない数値を作り上げることは絶対禁止
-- すべての数値・パーセント・価格は提供データから引用すること
-- 不確かな情報は「〜の可能性」と表現すること
+【2026年Xアルゴリズム最適化原則】
+- Scoring Signal: リプライ(75.0) >> リポスト(20.0) >> プロフィールクリック(12.0) >> いいね(1.0)
+- 滞在時間 30秒〜2分で1.5倍、2分超で11〜22倍の極大ブースト
+  → 論理構造とデータ密度で熟読時間を設計する
+- Grokのスパム判定を回避するため、無機質なAI文章ではなく「人間らしい主観や体験」を20%ブレンド
+- 外部URLは本文に置かない（減点対象）
 
-【出力形式】JSON配列のみ（マークダウンブロック不要）
-[
-  {"index":1,"role":"HOOK","text":"...","image_description":"..."},
-  ...
-]
+【絶対ルール（内容の深さ）】
+- 一次情報（EDGAR 10-K/10-Q、公式決算、学術論文）を可能な限り具体的に引用
+- 機関投資家レベルのクオンツ視点で語る（シャープレシオ、バックテスト、VIX、%B、MACDヒスト）
+- 提供されていない数値を創作することは絶対禁止
+- 使う数値は提供データから選んで引用（全部使う必要はない）
+- 「なぜそうなっているか」の因果関係を常に明示する
+- 断定的煽り禁止。リスクは誠実に開示
 
-- 投稿1のみ末尾にハッシュタグ: #米国株 #投資 #テクニカル分析 #株式投資 #資産運用
-- 各投稿200文字以内（日本語）
-- 絵文字を1〜3個使用
-- 読者が次を読みたくなる引きを作る"""
+【絶対ルール（人間味20%ブレンド）】
+以下の投稿には主観的フレーズを必ず1文だけ混ぜる:
+- HOOK(投稿1): 「正直、この動きは予想外だった」「個人的には今日のビッグサプライズ」等
+- ACTION(投稿5): 「自分が最も注視しているのは〇〇」「これは見逃したくないサイン」等
+※WHY/HOW/TA(投稿2〜4)は客観分析に徹する
+
+【絶対ルール（リプライ誘発＝スコア75.0獲得）】
+最終投稿(index=5, ACTION)のbody末尾には必ず議論誘発の問いかけを1つ配置:
+- 「皆さんはこの銘柄をどう見ていますか？」
+- 「次のトリガーは決算か金利か、皆さんの見解は？」
+※問いかけは💬絵文字をつけて独立セクションとする
+
+【絶対ルール（可読性フォーマット）】
+body構造:
+1. 冒頭1〜2行で指を止めるフック
+2. セクションごとに以下マーカーで見出し:
+   - ▼ / ▶   単純項目・ポイント
+   - ⚠️       注意・リスク
+   - 🔻       下落・反転シグナル
+   - 📊       データ・指標
+   - 📚       一次情報引用（EDGAR/決算/論文）
+   - 💬       議論誘発の問いかけ
+3. 中黒(・) で項目列挙、または ①②③ で分岐整理
+4. セクション間には必ず空行
+5. body冒頭に "𝗜𝗡𝗦𝗜𝗚𝗛𝗧..." や罫線は書かない（コード側で自動付与）
+
+【絶対ルール（出力スキーマ）】
+JSON配列のみ。各要素のフィールド:
+  - "index": 1〜5 の整数
+  - "role":  "HOOK"/"WHY"/"HOW"/"TA"/"ACTION"
+  - "title": 12〜22字の日本語見出し（【】なし、ハッシュタグなし）
+  - "body":  上記フォーマット準拠の本文（目安200〜280字、滞在時間を稼ぐ密度）
+
+【ハッシュタグ】
+投稿1(index=1)のbody末尾にのみ、空行1つ空けて:
+#米国株 #投資 #テクニカル分析 #株式投資 #資産運用"""
 
         user_prompt = f"""今日 {today} の実データをもとに、${ticker} のスレッドを作成してください。
 
@@ -828,19 +1189,42 @@ MACDステータス: {macd_comment}
 【本日のニュース（実データ）】
 {news_text}
 
-【5投稿の役割】
-1. HOOK: 今日の動きを一言で表す衝撃的な数字（実数値を使う）
-2. 背景(WHY): なぜ今日動いたか（ニュースの具体的な内容）
-3. 深掘り(HOW): 出来高・テクニカルから機関動向を分析
-4. TA分析(CHART): RSI/MACDを使った今後のシナリオ（強気/弱気）
-5. 戦略(ACTION): 具体的なエントリー・損切・利確ライン + CTA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【5投稿の戦略的役割と心理的フック】
 
-必ずJSON形式のみで回答してください。"""
+1. HOOK（衝撃型フック + 人間味1文） — title例: "〇〇の動きに異変、機関の資金が動いた"
+   - 冒頭1〜2行で強烈なフック（数字の衝撃 or 意外性）
+   - "▼ 背景" と "⚠️ 注意点" で因果整理
+   - 人間味フレーズを1文混入（"正直、この動きは読めなかった" 等）
+   - body末尾に空行1つ空けてハッシュタグ
+
+2. WHY（一次情報型 / EDGAR・決算から検証） — title例: "EDGAR 10-Qが示す、上昇の真因"
+   - "📚 一次情報" セクションで公式文書・決算資料の具体引用
+   - "▼ 市場背景" でマクロ要因を補足
+   - 二次情報の噂ではなく一次資料に基づく裏付け
+
+3. HOW（機関投資家視点 / クオンツ分析型） — title例: "機関の買い残高から読み解く、資金フロー"
+   - 📊 出来高比 / 📊 %B / 📊 オプションフロー の3データセクション
+   - 学術的補足（"機械学習検証ではSMAとMACDが最高精度" 等の事実）
+   - ⚠️ 薄商いや異常値を注意喚起
+
+4. TA（学術根拠型テクニカル） — title例: "SMA×MACDで見る過熱度、機械学習の示唆"
+   - 📊 RSI / 📊 MACD / 📊 BB の3データセクション
+   - 各指標の意味を数値と学術的示唆で補足
+   - 🔻 反転シグナルの可能性を明記
+
+5. ACTION（教えてください型 + リプライ誘発） — title例: "今後の注目水準、皆さんはどう見ますか？"
+   - ①②③ で観測すべき価格水準・指標値を提示
+   - 🔻 反転シグナル一言
+   - 人間味フレーズ1文（"自分が最も注視しているのは②" 等）
+   - 💬 で議論誘発の問いかけを独立セクションとして末尾に配置
+
+必ずJSON形式のみで回答してください。index は1〜5。"""
 
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
         message = client.messages.create(
             model="claude-opus-4-5",
-            max_tokens=2048,
+            max_tokens=2500,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
@@ -852,13 +1236,44 @@ MACDステータス: {macd_comment}
                 raw = raw[4:]
             raw = raw.strip()
 
-        posts = json.loads(raw)
+        raw_posts = json.loads(raw)
 
-        # 投稿1のハッシュタグを確認
-        if posts and HASHTAGS not in posts[0]["text"]:
-            posts[0]["text"] = posts[0]["text"].rstrip() + f"\n\n{HASHTAGS}"
+        # ── コード側で統一フォーマットに整形 ─────────────────────────
+        # Claude出力の title + body を結合して最終 text を生成。
+        # x_theme_crew.py と同じヘルパーを使用して常に同じビジュアルを保証。
+        posts: list[dict] = []
+        total = min(len(raw_posts), 5)
+        for i, p in enumerate(raw_posts[:5]):
+            idx   = int(p.get("index", i + 1))
+            role  = p.get("role", "")
+            title = p.get("title", "").strip()
+            body  = p.get("body", p.get("text", "")).strip()
 
-        return posts[:5]
+            # 古いスキーマ互換
+            if not title and body:
+                first_line = body.split("\n", 1)[0]
+                title = first_line.strip("【】 ").strip()
+            title = title.split("#")[0].strip()
+
+            # ─── 2026年Xアルゴリズム最適化: 最終投稿のリプライ誘発を確実化 ───
+            # Claudeが問いかけを入れなかった場合のフォールバック。
+            # 必ずリプライスコア75.0を狙える構造にする。
+            if idx == total and idx >= 4:
+                body = ensure_discussion_question(body)
+
+            # 投稿1のハッシュタグ確認
+            if idx == 1 and HASHTAGS not in body:
+                body = body.rstrip() + f"\n\n{HASHTAGS}"
+
+            text = format_post_text(idx, title, body)
+            posts.append({
+                "index": idx,
+                "role": role,
+                "title": title,
+                "text": text,
+            })
+
+        return posts
 
     # ─────────────────────────────────────────────────────────────────────────
     # STEP 5: X投稿（tweepy v2 → v1 フォールバック）
