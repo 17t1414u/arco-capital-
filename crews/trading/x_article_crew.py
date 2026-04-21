@@ -137,6 +137,70 @@ DEFAULT_MACRO_WATCHLIST = [
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# チャート・レジストリ — 記事テーマに応じて選択可能なチャート型のプール
+# ─────────────────────────────────────────────────────────────────────────────
+# key = メソッド名サフィックス（_chart_<key>）
+# 各エントリの "label" はログ表示と LLM への説明に使う
+# "best_for" は LLM がチャートを選ぶ際の判断材料
+# ═════════════════════════════════════════════════════════════════════════════
+CHART_REGISTRY = {
+    "normalized_performance": {
+        "label": "主要アセット長期推移（リバスド比較）",
+        "best_for": "複数アセット間の相対的勝者/敗者を時系列で可視化。セクター比較、テーマ銘柄の相対強弱",
+    },
+    "correlation_matrix": {
+        "label": "アセット相関マトリクス（ヒートマップ）",
+        "best_for": "アセット間の分散効果検証。ポートフォリオ構築の議論",
+    },
+    "risk_return": {
+        "label": "リスク/リターン散布図（シャープレシオ色分け）",
+        "best_for": "効率的なリスクテイク、リスク調整後リターンの比較",
+    },
+    "scenario_table": {
+        "label": "シナリオ別想定リターン（強気/中立/弱気）",
+        "best_for": "将来予測、投資判断のシナリオ分析",
+    },
+    "event_timeline": {
+        "label": "マクロイベント・タイムライン（主要指数に重要イベント注釈）",
+        "best_for": "地政学・政策変更・戦争等のイベントと価格反応を時系列で示す",
+    },
+    "sector_returns_bar": {
+        "label": "セクター別リターン横棒グラフ",
+        "best_for": "セクター比較、勝ち組/負け組の明確な可視化",
+    },
+    "volatility_timeseries": {
+        "label": "ボラティリティ/VIX推移",
+        "best_for": "リスク局面・クラッシュ・不確実性の高まりの可視化",
+    },
+    "drawdown_waterfall": {
+        "label": "最大ドローダウン・ウォーターフォール",
+        "best_for": "下落リスクの定量比較、ポジションサイズ議論",
+    },
+    "rolling_correlation": {
+        "label": "ローリング相関（時系列で相関が変化する様子）",
+        "best_for": "相関構造の変化、レジーム転換、分散効果の劣化",
+    },
+    "volume_surge_map": {
+        "label": "出来高急増ヒートマップ",
+        "best_for": "資金流入・フロー分析、機関投資家の動向",
+    },
+}
+
+# テーマカテゴリ別のチャート・プリセット
+# --chart-set <key> で明示指定、または LLM が auto 選択
+CHART_PRESETS = {
+    "default":      ["normalized_performance", "correlation_matrix", "risk_return", "scenario_table"],
+    "geopolitics":  ["event_timeline", "sector_returns_bar", "volatility_timeseries", "drawdown_waterfall"],
+    "sector":       ["normalized_performance", "sector_returns_bar", "risk_return", "scenario_table"],
+    "risk":         ["volatility_timeseries", "drawdown_waterfall", "rolling_correlation", "scenario_table"],
+    "macro":        ["normalized_performance", "rolling_correlation", "event_timeline", "scenario_table"],
+    "flow":         ["volume_surge_map", "sector_returns_bar", "correlation_matrix", "risk_return"],
+    "commodity":    ["normalized_performance", "volatility_timeseries", "event_timeline", "sector_returns_bar"],
+    "tech_cycle":   ["normalized_performance", "drawdown_waterfall", "rolling_correlation", "scenario_table"],
+}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # アーティクル整形ヘルパー
 # ═════════════════════════════════════════════════════════════════════════════
 # 太字タイトル用（XThemeThreadCrewと同じ Unicode Mathematical Sans-Serif Bold）
@@ -192,6 +256,7 @@ class XArticleCrew:
         target_length: str = "medium",
         time_horizon: str = "12months",
         dry_run: bool = True,
+        chart_set: str = "auto",
     ):
         if not title.strip():
             raise ValueError("title は必須です")
@@ -201,6 +266,8 @@ class XArticleCrew:
         self.target_length = target_length
         self.time_horizon = time_horizon
         self.dry_run = dry_run
+        # chart_set: "auto"=LLMが選ぶ / "default"等のpresetキー / カンマ区切りの明示key
+        self.chart_set = chart_set
 
         # 長さ目標（文字数）
         self._length_range = {
@@ -218,6 +285,7 @@ class XArticleCrew:
         self.yf_period = self._period_map.get(time_horizon, "1y")
 
         self.tickers: list[str] = []   # run() で確定
+        self.active_chart_keys: list[str] = []   # run() で確定
 
     # ─────────────────────────────────────────────────────────────────────────
     def run(self) -> str:
@@ -425,23 +493,121 @@ class XArticleCrew:
         return items[:20]
 
     # ─────────────────────────────────────────────────────────────────────────
-    # STEP 3: チャート生成（アーティクル専用）
+    # STEP 3: チャート生成（レジストリ駆動）
     # ─────────────────────────────────────────────────────────────────────────
+    def _select_chart_keys(self, market_data: dict, news_items: list[dict]) -> list[str]:
+        """
+        chart_set 引数に応じて実際に生成するチャートの key リストを返す。
+
+        - "auto"  : Claude Haiku がタイトル・コンテキストから最適な4枚を選択
+        - "<preset>" : CHART_PRESETS に定義されたプリセット（"default", "geopolitics", etc.）
+        - "k1,k2,k3,k4" : カンマ区切りで明示指定
+        """
+        cs = (self.chart_set or "auto").strip()
+
+        # カンマ区切り明示指定
+        if "," in cs:
+            keys = [k.strip() for k in cs.split(",") if k.strip()]
+            valid = [k for k in keys if k in CHART_REGISTRY]
+            if valid:
+                return valid[:4]
+
+        # プリセット
+        if cs in CHART_PRESETS:
+            return list(CHART_PRESETS[cs])
+
+        # auto — LLMで選択
+        if cs == "auto":
+            return self._llm_pick_chart_keys(market_data, news_items)
+
+        # 不明 → default
+        print(f"   ⚠️ 不明な chart_set '{cs}' → default")
+        return list(CHART_PRESETS["default"])
+
+    def _llm_pick_chart_keys(self, market_data: dict, news_items: list[dict]) -> list[str]:
+        """Claude Haiku にタイトル・コンテキストを渡して4つ選ばせる"""
+        try:
+            import anthropic
+            registry_desc = "\n".join(
+                f"- {k}: {v['label']} — {v['best_for']}"
+                for k, v in CHART_REGISTRY.items()
+            )
+            news_brief = "\n".join(f"- {n['headline'][:80]}" for n in news_items[:5]) or "（なし）"
+            prompt = f"""以下のマクロテーマ記事に最適なチャートを4つ選んでください。
+
+記事タイトル: {self.title}
+要点・焦点: {self.context or "（指定なし）"}
+時間軸: {self.time_horizon}
+直近ニュース:
+{news_brief}
+
+選択可能なチャート種類:
+{registry_desc}
+
+選択ルール:
+- 記事の議論内容と直接関連するチャートを優先
+- 4つ中1つは相関・散布図・シナリオ等の分析視点、残りはテーマ特化
+- 同じ視覚パターンの重複を避ける（例: 線グラフと散布図を混ぜる）
+
+JSON配列のみで4つのキーを返してください。説明不要。
+例: ["event_timeline", "sector_returns_bar", "volatility_timeseries", "scenario_table"]"""
+            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            msg = client.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=200,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = msg.content[0].text.strip()
+            if "```" in raw:
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+                raw = raw.strip()
+            keys = json.loads(raw)
+            valid = [k for k in keys if k in CHART_REGISTRY]
+            if len(valid) >= 3:
+                # 4枚に満たなければ default から補完
+                seen = set(valid)
+                for k in CHART_PRESETS["default"]:
+                    if len(valid) >= 4: break
+                    if k not in seen:
+                        valid.append(k); seen.add(k)
+                return valid[:4]
+        except Exception as e:
+            print(f"   ⚠️ LLMチャート選択エラー → default: {e}")
+        return list(CHART_PRESETS["default"])
+
     def _generate_charts(self, market_data: dict, news_items: list[dict]) -> list[Optional[str]]:
+        """選択されたチャートキー順に画像を生成"""
+        chart_keys = self._select_chart_keys(market_data, news_items)
+        self.active_chart_keys = chart_keys
+        print(f"   → 選定されたチャート構成: {', '.join(chart_keys)}\n")
+
         paths: list[Optional[str]] = []
-
-        print("   📊 chart1: 主要アセット長期推移（リバスド）...")
-        paths.append(self._chart_normalized_performance(market_data))
-
-        print("   📊 chart2: アセット相関マトリクス（ヒートマップ）...")
-        paths.append(self._chart_correlation_matrix(market_data))
-
-        print("   📊 chart3: リスク/リターン散布図（アセット比較）...")
-        paths.append(self._chart_risk_return(market_data))
-
-        print("   📊 chart4: シナリオ分析テーブル（強気/中立/弱気）...")
-        paths.append(self._chart_scenario_table(market_data))
-
+        for i, key in enumerate(chart_keys, 1):
+            meta = CHART_REGISTRY.get(key)
+            if not meta:
+                print(f"   ⚠️ 未知のchart key: {key} → スキップ")
+                paths.append(None)
+                continue
+            method_name = f"_chart_{key}"
+            method = getattr(self, method_name, None)
+            if not method:
+                print(f"   ⚠️ {method_name} 未実装 → スキップ")
+                paths.append(None)
+                continue
+            print(f"   📊 chart{i} ({key}): {meta['label']}...")
+            try:
+                # news_items を受け取れるメソッドは両方対応
+                import inspect
+                sig = inspect.signature(method)
+                if len(sig.parameters) >= 2:
+                    paths.append(method(market_data, news_items))
+                else:
+                    paths.append(method(market_data))
+            except Exception as e:
+                print(f"      ⚠️ {key} エラー: {e}")
+                paths.append(None)
         return paths
 
     def _chart_normalized_performance(self, market_data: dict) -> Optional[str]:
@@ -781,6 +947,443 @@ class XArticleCrew:
                 {"asset": "XLE (エネルギー)", "bull": "+25%", "base": "+6%", "bear": "-18%", "confidence": "低"},
                 {"asset": "^VIX (ボラ)",    "bull": "-20%", "base": "+0%",  "bear": "+40%", "confidence": "低"},
             ]
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 追加チャート: event_timeline
+    # ─────────────────────────────────────────────────────────────────────────
+    def _chart_event_timeline(self, market_data: dict, news_items: list[dict]) -> Optional[str]:
+        """主要指数の長期推移に、重要ニュース・イベントを注釈として重ねる"""
+        try:
+            from matplotlib.font_manager import FontProperties
+            fp = FontProperties(family=_JP_FONT) if _JP_FONT else None
+            # ベース銘柄を選ぶ（テーマの主要な動きを示す銘柄）
+            sorted_items = sorted(
+                market_data.items(),
+                key=lambda kv: abs(kv[1].get("total_return", 0)),
+                reverse=True,
+            )
+            top_asset = sorted_items[0] if sorted_items else None
+            if not top_asset:
+                return None
+            ticker, d = top_asset
+            df = d["df"]
+            if df.empty:
+                return None
+
+            import pandas as pd
+            idx = df.index
+            try: idx = idx.tz_localize(None)
+            except Exception: pass
+            closes = df["Close"].values
+
+            fig, ax = plt.subplots(figsize=(12, 7), facecolor=SLD_BG)
+            ax.set_facecolor(SLD_BG)
+            ax.plot(idx, closes, color=SLD_DARK, linewidth=2.0, label=ticker)
+            ax.fill_between(idx, closes.min()*0.95, closes, color=SLD_DARK, alpha=0.06)
+
+            # イベント注釈: ニュースから最大4つピック、時系列に均等配置
+            events = self._pick_event_annotations(news_items, min(4, len(news_items)))
+            # 時間軸上に均等配置（実日付がないのでインデックスベース）
+            n = len(idx)
+            anchor_frac = [0.15, 0.38, 0.62, 0.85]
+            for i, ev in enumerate(events[:4]):
+                pos = int(n * anchor_frac[i % len(anchor_frac)])
+                pos = max(0, min(n-1, pos))
+                x = idx[pos]
+                y = closes[pos]
+                # マーカー
+                ax.scatter([x], [y], s=120, color=SLD_ORG, zorder=5,
+                           edgecolors=SLD_DARK, linewidths=1.2)
+                # 注釈テキスト（短縮）
+                text = ev[:40] + ("…" if len(ev) > 40 else "")
+                ax.annotate(
+                    text,
+                    xy=(x, y),
+                    xytext=(0, 40 if i % 2 == 0 else -40),
+                    textcoords="offset points",
+                    ha="center",
+                    fontsize=8.5,
+                    color=SLD_TEXT,
+                    bbox=dict(boxstyle="round,pad=0.4",
+                              facecolor=SLD_BG, edgecolor=SLD_ORG, linewidth=1.0),
+                    arrowprops=dict(arrowstyle="->", color=SLD_ORG, lw=1.0),
+                    fontproperties=fp if fp else None,
+                )
+
+            ax.set_title(
+                f"{ticker} 長期推移 × マクロイベント（{self.time_horizon}）",
+                color=SLD_DARK, fontsize=13, fontweight="bold",
+                fontproperties=fp if fp else None, pad=14,
+            )
+            ax.set_ylabel("価格", color=SLD_SUB, fontsize=9,
+                          fontproperties=fp if fp else None)
+            ax.tick_params(colors=SLD_SUB, labelsize=9)
+            ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y/%m"))
+            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=max(1, int(self.yf_period[:-2]) if self.yf_period.endswith("mo") else 2)))
+            for s in ax.spines.values(): s.set_color(SLD_RULE)
+            ax.grid(color=SLD_RULE, linestyle="--", alpha=0.5, axis="y")
+
+            plt.tight_layout()
+            tmp = tempfile.NamedTemporaryFile(suffix="_article_event.png", delete=False)
+            tmp.close()
+            fig.savefig(tmp.name, dpi=150, facecolor=SLD_BG, bbox_inches="tight")
+            plt.close(fig)
+            return tmp.name
+        except Exception as e:
+            print(f"      ⚠️ event_timeline エラー: {e}")
+            return None
+
+    def _pick_event_annotations(self, news_items: list[dict], n: int) -> list[str]:
+        """ニュースから注釈に使う見出しを n 個抽出（重複排除 + 長さ優先）"""
+        seen = set()
+        picked = []
+        for item in news_items:
+            h = (item.get("headline") or "").strip()
+            if not h or h in seen: continue
+            if len(h) < 15: continue
+            seen.add(h)
+            picked.append(h)
+            if len(picked) >= n: break
+        return picked
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 追加チャート: sector_returns_bar
+    # ─────────────────────────────────────────────────────────────────────────
+    def _chart_sector_returns_bar(self, market_data: dict) -> Optional[str]:
+        """全アセットのトータルリターンを横棒グラフで比較（正=緑、負=赤）"""
+        try:
+            from matplotlib.font_manager import FontProperties
+            fp = FontProperties(family=_JP_FONT) if _JP_FONT else None
+
+            items = sorted(
+                market_data.items(),
+                key=lambda kv: kv[1].get("total_return", 0),
+            )
+            if not items: return None
+            top = items[-12:]  # 最大12銘柄
+
+            labels = [f"{k} {v.get('name','')[:18]}".strip() for k, v in top]
+            returns = [v.get("total_return", 0) for _, v in top]
+            colors = [SLD_GRN if r >= 0 else SLD_RED for r in returns]
+
+            fig_h = max(4.0, 0.5 * len(top) + 1.5)
+            fig, ax = plt.subplots(figsize=(12, fig_h), facecolor=SLD_BG)
+            ax.set_facecolor(SLD_BG)
+
+            y = np.arange(len(top))
+            bars = ax.barh(y, returns, color=colors, alpha=0.85, edgecolor=SLD_DARK, linewidth=0.6)
+
+            max_abs = max(abs(min(returns)), abs(max(returns))) if returns else 10
+            for i, (bar, r) in enumerate(zip(bars, returns)):
+                ax.text(
+                    r + (max_abs * 0.02 if r >= 0 else -max_abs * 0.02),
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{r:+.1f}%",
+                    va="center", ha="left" if r >= 0 else "right",
+                    fontsize=9, fontweight="bold",
+                    color=SLD_GRN if r >= 0 else SLD_RED,
+                    fontproperties=fp if fp else None,
+                )
+
+            ax.set_yticks(y)
+            ax.set_yticklabels(labels, fontsize=9, color=SLD_TEXT,
+                               fontproperties=fp if fp else None)
+            ax.axvline(0, color=SLD_DARK, linewidth=0.8)
+            ax.set_xlabel(f"{self.time_horizon} リターン（%）", color=SLD_SUB, fontsize=10,
+                          fontproperties=fp if fp else None)
+            ax.set_title(f"アセット別リターン比較（{self.time_horizon}）",
+                         color=SLD_DARK, fontsize=13, fontweight="bold",
+                         fontproperties=fp if fp else None, pad=14)
+            ax.tick_params(colors=SLD_SUB, labelsize=9)
+            for s in ax.spines.values(): s.set_color(SLD_RULE)
+            ax.grid(color=SLD_RULE, linestyle="--", alpha=0.4, axis="x")
+
+            plt.tight_layout()
+            tmp = tempfile.NamedTemporaryFile(suffix="_article_bar.png", delete=False)
+            tmp.close()
+            fig.savefig(tmp.name, dpi=150, facecolor=SLD_BG, bbox_inches="tight")
+            plt.close(fig)
+            return tmp.name
+        except Exception as e:
+            print(f"      ⚠️ sector_returns_bar エラー: {e}")
+            return None
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 追加チャート: volatility_timeseries
+    # ─────────────────────────────────────────────────────────────────────────
+    def _chart_volatility_timeseries(self, market_data: dict) -> Optional[str]:
+        """ローリング30日ボラティリティを主要3アセットで時系列表示（+ VIXがあれば重ね描画）"""
+        try:
+            from matplotlib.font_manager import FontProperties
+            import pandas as pd
+            fp = FontProperties(family=_JP_FONT) if _JP_FONT else None
+
+            fig, ax = plt.subplots(figsize=(12, 6.5), facecolor=SLD_BG)
+            ax.set_facecolor(SLD_BG)
+
+            # 主要3アセット（VIX除く、変動率絶対値上位）
+            sorted_items = sorted(
+                [(k, v) for k, v in market_data.items() if k != "^VIX"],
+                key=lambda kv: abs(kv[1].get("total_return", 0)),
+                reverse=True,
+            )
+            colors = [SLD_DARK, SLD_RED, BRAND_CYAN]
+            plotted = 0
+            for i, (ticker, d) in enumerate(sorted_items[:3]):
+                df = d["df"]
+                if df.empty: continue
+                rets = df["Close"].pct_change().dropna()
+                vol = rets.rolling(30).std() * np.sqrt(252) * 100  # 年率%
+                idx = vol.index
+                try: idx = idx.tz_localize(None)
+                except Exception: pass
+                ax.plot(idx, vol.values, color=colors[i % len(colors)],
+                        linewidth=1.8, label=f"{ticker}", alpha=0.85)
+                plotted += 1
+
+            # VIX（右軸）
+            if "^VIX" in market_data:
+                ax2 = ax.twinx()
+                vix_df = market_data["^VIX"]["df"]
+                if not vix_df.empty:
+                    idx = vix_df.index
+                    try: idx = idx.tz_localize(None)
+                    except Exception: pass
+                    ax2.plot(idx, vix_df["Close"], color=SLD_ORG,
+                             linewidth=1.6, alpha=0.8, label="^VIX", linestyle="--")
+                    ax2.set_ylabel("VIX (右軸)", color=SLD_ORG, fontsize=9,
+                                   fontproperties=fp if fp else None)
+                    ax2.tick_params(axis="y", colors=SLD_ORG, labelsize=9)
+
+            if plotted == 0: return None
+
+            ax.set_title(f"ローリング30日ボラティリティ（{self.time_horizon}・年率%）",
+                         color=SLD_DARK, fontsize=13, fontweight="bold",
+                         fontproperties=fp if fp else None, pad=14)
+            ax.set_ylabel("ボラティリティ (%)", color=SLD_SUB, fontsize=10,
+                          fontproperties=fp if fp else None)
+            ax.tick_params(colors=SLD_SUB, labelsize=9)
+            ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y/%m"))
+            for s in ax.spines.values(): s.set_color(SLD_RULE)
+            ax.grid(color=SLD_RULE, linestyle="--", alpha=0.5, axis="y")
+            ax.legend(loc="upper left", fontsize=9, frameon=True,
+                      facecolor=SLD_BG, edgecolor=SLD_RULE,
+                      prop=fp if fp else None)
+
+            plt.tight_layout()
+            tmp = tempfile.NamedTemporaryFile(suffix="_article_vol.png", delete=False)
+            tmp.close()
+            fig.savefig(tmp.name, dpi=150, facecolor=SLD_BG, bbox_inches="tight")
+            plt.close(fig)
+            return tmp.name
+        except Exception as e:
+            print(f"      ⚠️ volatility_timeseries エラー: {e}")
+            return None
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 追加チャート: drawdown_waterfall
+    # ─────────────────────────────────────────────────────────────────────────
+    def _chart_drawdown_waterfall(self, market_data: dict) -> Optional[str]:
+        """各アセットの最大ドローダウンを並べてウォーターフォール風に表示"""
+        try:
+            from matplotlib.font_manager import FontProperties
+            fp = FontProperties(family=_JP_FONT) if _JP_FONT else None
+
+            items = sorted(
+                market_data.items(),
+                key=lambda kv: kv[1].get("max_drawdown", 0),
+            )
+            top = items[:12]  # 最大DDが大きい順
+            if not top: return None
+
+            labels = [f"{k}" for k, _ in top]
+            dds = [v.get("max_drawdown", 0) for _, v in top]
+
+            fig_h = max(4.0, 0.5 * len(top) + 1.5)
+            fig, ax = plt.subplots(figsize=(12, fig_h), facecolor=SLD_BG)
+            ax.set_facecolor(SLD_BG)
+
+            y = np.arange(len(top))
+            # DDは負の値なので赤系グラデーション
+            colors = []
+            min_dd = min(dds) if dds else -1
+            for dd in dds:
+                intensity = abs(dd) / abs(min_dd) if min_dd != 0 else 0.5
+                # 濃い赤〜薄い赤
+                colors.append((0.86, 0.17 + 0.4*(1-intensity), 0.15 + 0.3*(1-intensity), 0.85))
+
+            bars = ax.barh(y, dds, color=colors, edgecolor=SLD_DARK, linewidth=0.6)
+            for bar, dd in zip(bars, dds):
+                ax.text(
+                    dd - 1,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{dd:.1f}%",
+                    va="center", ha="right",
+                    fontsize=9, fontweight="bold", color=SLD_RED,
+                    fontproperties=fp if fp else None,
+                )
+
+            ax.set_yticks(y)
+            ax.set_yticklabels(labels, fontsize=10, color=SLD_TEXT, fontweight="bold",
+                               fontproperties=fp if fp else None)
+            ax.axvline(0, color=SLD_DARK, linewidth=0.8)
+            ax.set_xlabel(f"最大ドローダウン（{self.time_horizon}・%）", color=SLD_SUB,
+                          fontsize=10, fontproperties=fp if fp else None)
+            ax.set_title(f"アセット別 最大ドローダウン比較",
+                         color=SLD_DARK, fontsize=13, fontweight="bold",
+                         fontproperties=fp if fp else None, pad=14)
+            ax.tick_params(colors=SLD_SUB, labelsize=9)
+            for s in ax.spines.values(): s.set_color(SLD_RULE)
+            ax.grid(color=SLD_RULE, linestyle="--", alpha=0.4, axis="x")
+
+            plt.tight_layout()
+            tmp = tempfile.NamedTemporaryFile(suffix="_article_dd.png", delete=False)
+            tmp.close()
+            fig.savefig(tmp.name, dpi=150, facecolor=SLD_BG, bbox_inches="tight")
+            plt.close(fig)
+            return tmp.name
+        except Exception as e:
+            print(f"      ⚠️ drawdown_waterfall エラー: {e}")
+            return None
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 追加チャート: rolling_correlation
+    # ─────────────────────────────────────────────────────────────────────────
+    def _chart_rolling_correlation(self, market_data: dict) -> Optional[str]:
+        """代表2ペアの60日ローリング相関の時系列推移"""
+        try:
+            from matplotlib.font_manager import FontProperties
+            import pandas as pd
+            fp = FontProperties(family=_JP_FONT) if _JP_FONT else None
+
+            # 主要アセット（SPYをベースに）
+            if "SPY" not in market_data:
+                return None
+            base = "SPY"
+            # 他のアセット上位4つ（SPY以外）をペアとして選ぶ
+            candidates = sorted(
+                [(k, v) for k, v in market_data.items() if k != base],
+                key=lambda kv: abs(kv[1].get("total_return", 0)),
+                reverse=True,
+            )[:4]
+            if not candidates: return None
+
+            # 価格DFを結合してtimezone正規化
+            closes = {}
+            for k in [base] + [c[0] for c in candidates]:
+                s = market_data[k]["df"]["Close"].copy()
+                try: s.index = s.index.tz_localize(None)
+                except Exception: pass
+                s.index = pd.to_datetime(s.index).normalize()
+                closes[k] = s
+            df = pd.DataFrame(closes).dropna()
+            if len(df) < 90: return None
+            rets = df.pct_change().dropna()
+
+            fig, ax = plt.subplots(figsize=(12, 6.5), facecolor=SLD_BG)
+            ax.set_facecolor(SLD_BG)
+
+            colors = [SLD_RED, BRAND_CYAN, SLD_ORG, "#7C3AED"]
+            for i, (k, _) in enumerate(candidates):
+                corr = rets[base].rolling(60).corr(rets[k]).dropna()
+                ax.plot(corr.index, corr.values, color=colors[i % len(colors)],
+                        linewidth=1.8, label=f"{base}↔{k}", alpha=0.85)
+
+            ax.axhline(0, color=SLD_DARK, linewidth=0.6, linestyle="-")
+            ax.set_ylim(-1, 1)
+            ax.set_title(f"{base} との60日ローリング相関（{self.time_horizon}）",
+                         color=SLD_DARK, fontsize=13, fontweight="bold",
+                         fontproperties=fp if fp else None, pad=14)
+            ax.set_ylabel("相関係数", color=SLD_SUB, fontsize=10,
+                          fontproperties=fp if fp else None)
+            ax.tick_params(colors=SLD_SUB, labelsize=9)
+            ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y/%m"))
+            for s in ax.spines.values(): s.set_color(SLD_RULE)
+            ax.grid(color=SLD_RULE, linestyle="--", alpha=0.5, axis="y")
+            ax.legend(loc="lower left", fontsize=9, frameon=True,
+                      facecolor=SLD_BG, edgecolor=SLD_RULE,
+                      prop=fp if fp else None, ncol=2)
+
+            plt.tight_layout()
+            tmp = tempfile.NamedTemporaryFile(suffix="_article_rcorr.png", delete=False)
+            tmp.close()
+            fig.savefig(tmp.name, dpi=150, facecolor=SLD_BG, bbox_inches="tight")
+            plt.close(fig)
+            return tmp.name
+        except Exception as e:
+            print(f"      ⚠️ rolling_correlation エラー: {e}")
+            return None
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 追加チャート: volume_surge_map
+    # ─────────────────────────────────────────────────────────────────────────
+    def _chart_volume_surge_map(self, market_data: dict) -> Optional[str]:
+        """
+        各アセットの過去60日出来高比率（各日出来高 / 20日平均）を
+        時系列×銘柄のヒートマップで表示 — 資金フローの急増を視覚化
+        """
+        try:
+            from matplotlib.font_manager import FontProperties
+            import pandas as pd
+            fp = FontProperties(family=_JP_FONT) if _JP_FONT else None
+
+            # 出来高データ収集
+            series = {}
+            for k, v in market_data.items():
+                df = v.get("df")
+                if df is None or df.empty or "Volume" not in df.columns:
+                    continue
+                vol = df["Volume"]
+                avg20 = vol.rolling(20).mean()
+                ratio = (vol / avg20).tail(60)
+                idx = ratio.index
+                try: idx = idx.tz_localize(None)
+                except Exception: pass
+                ratio.index = pd.to_datetime(idx).normalize()
+                series[k] = ratio
+            if len(series) < 3: return None
+
+            df_heat = pd.DataFrame(series).fillna(1.0)
+            # 行: 銘柄、列: 日付
+            matrix = df_heat.T.values
+            tickers = list(df_heat.columns)
+            dates = df_heat.index
+
+            fig_h = max(4.0, 0.32 * len(tickers) + 1.8)
+            fig, ax = plt.subplots(figsize=(12, fig_h), facecolor=SLD_BG)
+            im = ax.imshow(matrix, cmap="YlOrRd", aspect="auto", vmin=0.5, vmax=3.0)
+
+            ax.set_yticks(range(len(tickers)))
+            ax.set_yticklabels(tickers, fontsize=9, color=SLD_TEXT,
+                               fontproperties=fp if fp else None)
+
+            # X軸: 日付ラベル（約8個）
+            step = max(1, len(dates) // 8)
+            xt_pos = list(range(0, len(dates), step))
+            xt_lab = [dates[i].strftime("%Y/%m/%d") for i in xt_pos]
+            ax.set_xticks(xt_pos)
+            ax.set_xticklabels(xt_lab, fontsize=8, color=SLD_SUB, rotation=30, ha="right",
+                               fontproperties=fp if fp else None)
+
+            ax.set_title("出来高比（各日/20日平均）— 資金フローの急増マップ（直近60日）",
+                         color=SLD_DARK, fontsize=12.5, fontweight="bold",
+                         fontproperties=fp if fp else None, pad=14)
+
+            cbar = fig.colorbar(im, ax=ax, shrink=0.75)
+            cbar.set_label("出来高比（1.0=平均）", color=SLD_SUB, fontsize=9,
+                           fontproperties=fp if fp else None)
+            cbar.ax.tick_params(colors=SLD_SUB, labelsize=8)
+            cbar.outline.set_edgecolor(SLD_RULE)
+
+            plt.tight_layout()
+            tmp = tempfile.NamedTemporaryFile(suffix="_article_vol_heat.png", delete=False)
+            tmp.close()
+            fig.savefig(tmp.name, dpi=150, facecolor=SLD_BG, bbox_inches="tight")
+            plt.close(fig)
+            return tmp.name
+        except Exception as e:
+            print(f"      ⚠️ volume_surge_map エラー: {e}")
+            return None
 
     # ─────────────────────────────────────────────────────────────────────────
     # STEP 4: アーティクル本文生成

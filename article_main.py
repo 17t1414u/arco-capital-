@@ -60,6 +60,14 @@ def main():
     parser.add_argument("--publish", action="store_true",
                         help="X Article Composer 向けの貼り付けガイドを出力する"
                              "（既定はドライラン = 生成のみ）")
+    parser.add_argument("--chart-set", default="auto",
+                        help=(
+                            "チャート構成の選択: "
+                            "auto(LLMが自動選定/既定) | "
+                            "default/geopolitics/sector/risk/macro/flow/commodity/tech_cycle "
+                            "(プリセット) | "
+                            "'key1,key2,key3,key4' (4つのチャート名を直接指定)"
+                        ))
 
     args = parser.parse_args()
 
@@ -72,6 +80,7 @@ def main():
         target_length=args.length,
         time_horizon=args.horizon,
         dry_run=not args.publish,
+        chart_set=args.chart_set,
     )
     crew.run()
 
