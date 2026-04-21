@@ -1,0 +1,143 @@
+# Arco Capital Operational Guardrails
+# 2026-04-21 取締役会 最終決議 (.octogent/decision.md) に基づく設定
+#
+# 変更履歴:
+#   2026-04-21  初版 — モードB即日稼働・Phase 0 guardrails
+#
+# 本ファイルは「宣言的な上限」。実行時の強制は operations/budget_tracker.py が担う。
+# RULE-04 に則り、本ファイルを超過する操作はサイレントフォールバックせず、必ず停止・通知する。
+
+company: Arco Capital
+decision_ref: .octogent/decision.md
+effective_from: 2026-04-21
+phase: 0
+active_mode: B  # A=Dry-run, B=Semi-live(承認ゲート), C=Full-live
+
+# ──────────────────────────────────────────────────────────────
+# 運用モード定義
+# ──────────────────────────────────────────────────────────────
+modes:
+  A:
+    label: Dry-run
+    description: |
+      草案生成のみ。外部送信・有料クレジット消費を全面禁止。
+    external_send_allowed: false
+    paid_credits_allowed: false
+    human_approval_required: false
+  B:
+    label: Semi-live
+    description: |
+      草案生成 + オーナー承認後に外部送信。不可逆操作はすべて承認ゲート経由。
+    external_send_allowed: true
+    paid_credits_allowed: true
+    human_approval_required: true
+    approval_sla_minutes: 15          # 承認キュー滞留上限
+  C:
+    label: Full-live
+    description: |
+      承認ゲートをスキップし全自動実行。未達事業部への付与禁止。
+    external_send_allowed: true
+    paid_credits_allowed: true
+    human_approval_required: false
+    requires_phase_1_gate: true
+
+# ──────────────────────────────────────────────────────────────
+# 予算ガードレール (ハードキャップ)
+# ──────────────────────────────────────────────────────────────
+budget:
+  anthropic_api:
+    daily_limit_jpy: 1500
+    alert_threshold_ratio: 0.80  # ¥1,200 で警告、¥1,500 で自動停止
+    state_file: operations/budget_status.json
+    on_breach: kill_switch        # 超過時の動作: kill_switch / alert_only
+  renoise_credits:
+    weekly_limit_jpy: 10000
+    alert_threshold_ratio: 0.70   # ¥7,000 で警告、¥10,000 で自動停止
+    state_file: operations/budget_status.json
+    on_breach: kill_switch
+  # 長期運用で追加予定の項目
+  # openai_api, stripe_fee, etc.
+
+# ──────────────────────────────────────────────────────────────
+# 炎上・インシデント閾値 (CFO 拘束条件)
+# ──────────────────────────────────────────────────────────────
+incidents:
+  flaming_cumulative_threshold: 2   # 累計2件でモードB恒久化・全事業部モードC付与停止
+  misfire_cumulative_threshold: 1   # 誤投稿1件でDirector即モードAに差し戻し
+  dm_response_sla_hours: 24         # COO拘束条件
+
+# ──────────────────────────────────────────────────────────────
+# 事業部別モード状態
+# ──────────────────────────────────────────────────────────────
+divisions:
+  trading:
+    name: 資産運用事業部
+    director_agent: agents/trading/director.py
+    mode: B
+    revenue_target_jpy_monthly: 10000
+    phase_1_gate:
+      - "paper trading週報 草案生成OK"
+      - "note ¥980 販売ページ準備完了(手動公開)"
+      - "trade_log.jsonl 連続7日記録"
+    sla:
+      dm_response_hours: 24
+      misfire_detection_minutes: 30
+  sns_video:
+    name: SNS動画運用事業部
+    director_agent: agents/sns_video/director.py
+    mode: B
+    revenue_target_jpy_monthly: 100000
+    phase_1_gate:
+      - "cinematic-everyday-01 の3セグ完成・結合・納品"
+      - "制作代行LP 公開(手動)"
+      - "Renoise エラーハンドリング設計書 PR化"
+    sla:
+      dm_response_hours: 24
+      render_failure_retry_max: 2
+  knowledge:
+    name: ナレッジ連携事業部
+    director_agent: agents/knowledge/director.py
+    mode: B
+    revenue_target_jpy_monthly: 30000
+    phase_1_gate:
+      - "Obsidianテンプレパック v1 完成"
+      - "note LP 公開(手動、4/23期限)"
+      - "/wiki-ingest + /wiki-lint の週次運用実績"
+    sla:
+      dm_response_hours: 24
+
+# ──────────────────────────────────────────────────────────────
+# Kill-switch
+# ──────────────────────────────────────────────────────────────
+kill_switch:
+  script: operations/kill_switch.py
+  triggers:
+    - budget_breach                 # 予算ハードキャップ超過
+    - flaming_incident_reported     # 炎上検知
+    - misfire_detected              # 誤投稿検知
+    - manual                        # オーナー手動発火
+  actions:
+    - "全 Director エージェントを即停止"
+    - "全事業部を強制モードA(Dry-run)へ差し戻し"
+    - "operations/incident_log.jsonl に発火原因を追記"
+    - "X DM・メールでオーナーに通知"
+
+# ──────────────────────────────────────────────────────────────
+# Phase 1 ゲート (2026-04-25 判定会議)
+# ──────────────────────────────────────────────────────────────
+phase_1_gate:
+  review_date: 2026-04-25
+  criteria:
+    - id: CINEMATIC_01
+      desc: "cinematic-everyday-01 完成(3セグ全納品+結合+BGM+アップロード)"
+      owner: SNSVideoDirector
+    - id: DM_SLO
+      desc: "DM返信SLO 24h の運用実績(Week1で100%達成)"
+      owner: COO
+    - id: MONITOR_DASHBOARD
+      desc: "監視ダッシュボード稼働(エラー率/SLO/コスト の3指標可視化)"
+      owner: CTO
+    - id: FLAMING_ZERO
+      desc: "Week1 炎上0件・誤投稿0件"
+      owner: COO
+  decision_rule: "全4条件クリア → モードC段階移行可 / 1つでも欠ければ Phase 1 延長"
