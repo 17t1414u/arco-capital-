@@ -1,11 +1,18 @@
 {
-  "mode": "C",
+  "mode": "B",
+  "mode_history": [
+    {"date": "2026-04-05", "mode": "C", "reason": "initial draft"},
+    {"date": "2026-04-21", "mode": "B", "reason": "取締役会決議によりPhase 0はモードB固定"}
+  ],
   "title": "Cinematic Everyday — 日常が映画になる瞬間",
   "client": "Arco Capital SNS動画運用事業部",
   "platform": "Instagram Reels",
   "ratio": "9:16",
   "segments": 3,
+  "segment_duration_sec": 10.0,
+  "total_duration_sec": 30.0,
   "style_line": "Cinematic realism, 35mm film look, shallow depth of field, film grain.",
+  "loudness_target_lufs": -14,
   "characters": [
     {
       "name": "Woman (hands/silhouette only)",
@@ -15,10 +22,20 @@
     }
   ],
   "shots": [
-    {"id": "S1", "status": "pending", "task_id": null, "video_url": null},
-    {"id": "S2", "status": "pending", "task_id": null, "video_url": null},
-    {"id": "S3", "status": "pending", "task_id": null, "video_url": null}
+    {"id": "S1", "theme": "Morning / 目覚め", "duration_sec": 10.0, "budget_jpy": 3500, "status": "pending", "task_id": null, "video_url": null},
+    {"id": "S2", "theme": "Noon / 静寂",    "duration_sec": 10.0, "budget_jpy": 3500, "status": "pending", "task_id": null, "video_url": null},
+    {"id": "S3", "theme": "Evening / 帰路", "duration_sec": 10.0, "budget_jpy": 3000, "status": "pending", "task_id": null, "video_url": null}
   ],
+  "weekly_budget_cap_jpy": 10000,
+  "guardrails": {
+    "mode_ref": "operations/guardrails.yaml",
+    "renoise_exception_design": "ArcoCapital/経営陣/Renoise例外処理設計書.md",
+    "l1_prompt_check": true,
+    "l2_execution_guards": true,
+    "l3_result_validation": true
+  },
   "generation_strategy": "parallel",
-  "created_at": "2026-04-05"
+  "created_at": "2026-04-05",
+  "updated_at": "2026-04-21",
+  "storyboard": "ArcoCapital/SNS動画運用事業部/企画/cinematic-everyday-01/storyboard.md"
 }
