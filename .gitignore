@@ -23,6 +23,12 @@ env/
 outputs/*
 !outputs/.gitkeep
 
+# operations/ runtime logs (BudgetTracker / Kill-switch / dashboard input)
+operations/budget_log.jsonl
+operations/budget_status.json
+operations/incident_log.jsonl
+operations/dm_log.csv
+
 # IDE
 .vscode/
 .idea/
