@@ -500,6 +500,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = ap.parse_args(argv)
 
+    # Windows の cmd.exe 既定 (cp932) だと UTF-8 文字で UnicodeEncodeError になる。
+    # PYTHONIOENCODING=utf-8 の .bat ラッパでは問題にならないが、生の呼び出し時も
+    # 壊れないように stdout/stderr を UTF-8 に reconfigure しておく。
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream.encoding and stream.encoding.lower() != "utf-8":
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError):
+            pass
+
     guardrails = load_guardrails()
     cost = collect_cost(args.date, guardrails)
     slo = collect_slo(args.date)

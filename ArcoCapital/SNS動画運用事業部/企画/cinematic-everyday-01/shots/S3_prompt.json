@@ -1,0 +1,20 @@
+{
+  "segment_id": "S3",
+  "theme": "Evening / 帰路",
+  "subject": "woman's hand only (no face, no upper body above waist), hand holding a metal house key in front of apartment door, key entering lock cylinder",
+  "action": "key inserted slowly, door opening inward, warm interior light spilling out against cool evening sky",
+  "style": "cinematic realism, 35mm film, shallow depth of field (f/1.8), film grain, evening palette (3000K warm interior + blue-purple sky)",
+  "camera": "low angle looking up, then macro on keyhole, then interior push-in",
+  "duration_sec": 10.0,
+  "aspect_ratio": "9:16",
+  "resolution": "1080x1920",
+  "audio": "none",
+  "negative": "face, portrait, person's face, watermark, text overlay, logos on door, readable text on signage, visible apartment number",
+  "estimated_cost_jpy": 3000,
+  "l1_checks": {
+    "forbidden_terms_absent": true,
+    "duration_in_range": true,
+    "aspect_in_whitelist": true,
+    "negative_contains_face_portrait": true
+  }
+}
