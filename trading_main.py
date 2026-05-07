@@ -23,7 +23,7 @@ import sys
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)  # .env が空のシステム環境変数より優先されるように
 
 logging.basicConfig(
     level=logging.INFO,

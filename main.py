@@ -17,7 +17,7 @@ Prerequisites:
 # because CrewAI reads environment variables at import time.
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)  # .env が空のシステム環境変数より優先されるように
 
 from config.settings import settings  # noqa: E402 (intentional post-dotenv import)
 from crews.executive.executive_crew import ExecutiveCrew  # noqa: E402

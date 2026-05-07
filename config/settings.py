@@ -1,11 +1,21 @@
 """
 Central configuration module.
 All other modules import from here — never call os.getenv directly elsewhere.
-load_dotenv() must be called before this module is imported.
+
+NOTE: load_dotenv(override=True) is invoked at import time so that values
+in .env always take precedence over stale or empty system environment
+variables (Windows でシステム環境変数として空の ANTHROPIC_API_KEY が残って
+いるケースで、エージェントが起動失敗するのを防ぐ).
 """
 
 import os
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+# IMPORTANT: override=True ensures .env wins over any pre-existing (possibly
+# empty) system environment variables. Do not change without testing on Windows.
+load_dotenv(override=True)
 
 
 class _Settings:

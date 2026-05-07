@@ -59,11 +59,19 @@ async def init_db() -> None:
         await db.commit()
 
 
-async def get_db() -> aiosqlite.Connection:
-    """Return an open connection. Caller is responsible for closing."""
+def get_db() -> aiosqlite.Connection:
+    """
+    Return an aiosqlite Connection that can be used as an async context
+    manager: ``async with get_db() as db: ...``.
+
+    NOTE: Do NOT ``await`` this function. ``aiosqlite.connect()`` returns a
+    Connection whose ``__aenter__`` is what actually starts the worker thread.
+    Awaiting here too would trigger the thread twice and raise
+    ``RuntimeError: threads can only be started once`` on the second use.
+    """
     db_path = settings.trading_db_path
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    return await aiosqlite.connect(db_path)
+    return aiosqlite.connect(db_path)
 
 
 if __name__ == "__main__":

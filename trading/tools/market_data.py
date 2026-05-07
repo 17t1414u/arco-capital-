@@ -24,6 +24,17 @@ def _make_client() -> StockHistoricalDataClient:
     )
 
 
+def _expected_trading_days(start: date, end: date) -> int:
+    """Rough count of trading days in [start, end] (weekdays, ignores holidays)."""
+    days = 0
+    d = start
+    while d <= end:
+        if d.weekday() < 5:  # Mon-Fri
+            days += 1
+        d += timedelta(days=1)
+    return days
+
+
 async def fetch_bars(
     ticker: str,
     start: date,
@@ -32,14 +43,26 @@ async def fetch_bars(
 ) -> pd.DataFrame:
     """
     Return daily OHLCV bars for *ticker* between *start* and *end*.
-    Reads from cache when available; fetches from Alpaca for missing data.
+
+    Reads from cache only when the cached range is "complete enough"
+    (>=80% of expected trading days). Otherwise refetches from Alpaca.
+    This prevents the bug where a short prior fetch (e.g. 5 days for
+    get_latest_price) would shadow a later full-range fetch needed by
+    indicator calculations.
     """
     if end is None:
         end = date.today() - timedelta(days=1)  # yesterday (market data lag)
 
     if use_cache:
         cached = await get_cached_bars(ticker, start, end)
-        if cached is not None and not cached.empty:
+        expected = _expected_trading_days(start, end)
+        # Accept cache only if we have at least 80% of expected trading days
+        # AND at least 5 rows (too few rows is useless for indicators anyway).
+        if (
+            cached is not None
+            and not cached.empty
+            and len(cached) >= max(5, int(expected * 0.8))
+        ):
             return cached
 
     # Fetch from Alpaca (sync SDK wrapped in thread)

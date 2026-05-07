@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 
 def test_anthropic():
@@ -47,5 +47,5 @@ if __name__ == "__main__":
     anthropic_ok = test_anthropic()
     alpaca_ok = test_alpaca()
     print("\n=== 結果 ===")
-    print(f"Anthropic: {'✓' if anthropic_ok else '✗'}")
-    print(f"Alpaca:    {'✓' if alpaca_ok else '✗'}")
+    print(f"Anthropic: {'OK' if anthropic_ok else 'FAIL'}")
+    print(f"Alpaca:    {'OK' if alpaca_ok else 'FAIL'}")

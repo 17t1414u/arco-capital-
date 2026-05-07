@@ -7,7 +7,7 @@ Phase 2: order execution tools are added here.
 
 import asyncio
 from datetime import date, timedelta
-from typing import Optional, Type
+from typing import Any, Coroutine, Optional, Type
 
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -15,6 +15,36 @@ from pydantic import BaseModel, Field
 from config.settings import settings
 from trading.tools.market_data import fetch_bars, get_latest_price
 from trading.tools.indicators import rsi, sma, macd
+
+
+def _run_async(coro: Coroutine[Any, Any, Any]) -> Any:
+    """
+    Run an async coroutine from any thread.
+
+    CrewAI invokes tools on worker threads where no event loop exists.
+    ``asyncio.get_event_loop()`` raises "There is no current event loop in
+    thread 'MainThread'" in that context on Python 3.10+.
+
+    This helper:
+      - tries to use a running loop (unlikely in a sync tool context),
+      - else creates a fresh loop, runs the coro, closes it.
+    """
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+
+    if running is not None:
+        # Extremely rare path: called from inside an event loop.
+        # asyncio.run() would fail here, so schedule on the running loop.
+        return asyncio.run_coroutine_threadsafe(coro, running).result()
+
+    # Normal path: no loop exists in this thread → create one.
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 # ── Input schemas ──────────────────────────────────────────────────────────────
@@ -34,6 +64,14 @@ class OrderInput(BaseModel):
     qty: float = Field(..., description="Number of shares")
     order_type: str = Field(default="market", description="'market' or 'limit'")
     limit_price: Optional[float] = Field(default=None, description="Required for limit orders")
+    intentional_short: bool = Field(
+        default=False,
+        description=(
+            "Set to True only when explicitly entering a Path C short position "
+            "(strategy.md v2.3 過熱反転売り). When False, SELL orders without "
+            "existing long position are blocked to prevent accidental shorts."
+        ),
+    )
 
 
 # ── Tools ──────────────────────────────────────────────────────────────────────
@@ -47,7 +85,7 @@ class GetLatestPriceTool(BaseTool):
     args_schema: Type[BaseModel] = TickerInput
 
     def _run(self, ticker: str) -> str:
-        price = asyncio.get_event_loop().run_until_complete(get_latest_price(ticker.upper()))
+        price = _run_async(get_latest_price(ticker.upper()))
         if price is None:
             return f"Could not retrieve price for {ticker}."
         return f"{ticker.upper()} latest close: ${price:.2f}"
@@ -64,9 +102,7 @@ class GetBarsTool(BaseTool):
     def _run(self, ticker: str, days: int = 30) -> str:
         end = date.today() - timedelta(days=1)
         start = end - timedelta(days=days)
-        df = asyncio.get_event_loop().run_until_complete(
-            fetch_bars(ticker.upper(), start, end)
-        )
+        df = _run_async(fetch_bars(ticker.upper(), start, end))
         if df.empty:
             return f"No data found for {ticker} in the last {days} days."
         return (
@@ -89,9 +125,7 @@ class GetIndicatorsTool(BaseTool):
     def _run(self, ticker: str) -> str:
         end = date.today() - timedelta(days=1)
         start = end - timedelta(days=60)
-        df = asyncio.get_event_loop().run_until_complete(
-            fetch_bars(ticker.upper(), start, end)
-        )
+        df = _run_async(fetch_bars(ticker.upper(), start, end))
         if df.empty or len(df) < 15:
             return f"Not enough data to compute indicators for {ticker}."
 
@@ -127,11 +161,11 @@ class PlaceOrderTool(BaseTool):
         qty: float,
         order_type: str = "market",
         limit_price: Optional[float] = None,
+        intentional_short: bool = False,
     ) -> str:
         from alpaca.trading.client import TradingClient
         from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
         from alpaca.trading.enums import OrderSide, TimeInForce
-        from datetime import datetime
 
         client = TradingClient(
             api_key=settings.alpaca_api_key,
@@ -139,17 +173,50 @@ class PlaceOrderTool(BaseTool):
             paper=settings.is_paper_trading,
         )
         order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+        symbol = ticker.upper()
+
+        # ── 🛡️ ガードレール: 意図しないショート建ての防止 (strategy.md v2.3) ──
+        # SELL 注文は3パターンに分岐:
+        #   1. LONG クローズ（保有あり）→ 通常通り通過
+        #   2. 意図的SHORT (intentional_short=True、Path C 経由) → 通過
+        #   3. 上記以外 → ブロック（誤発注によるショート建ての防止）
+        if order_side == OrderSide.SELL:
+            try:
+                positions = client.get_all_positions()
+                pos = next((p for p in positions if p.symbol == symbol), None)
+                held_qty = float(pos.qty) if pos else 0.0
+
+                if held_qty > 0:
+                    # ケース1: LONG クローズ - qty が保有量を超えていなければ通過
+                    if qty > held_qty:
+                        return (
+                            f"[BLOCKED] SELL {symbol} {qty}株 は保有数量({held_qty}株)を超過: "
+                            f"部分売却の場合は qty <= 保有数量に調整してください"
+                        )
+                elif intentional_short:
+                    # ケース2: 意図的SHORT 建て (Path C 経由のみ許可)
+                    pass  # 通過
+                else:
+                    # ケース3: 保有なしの誤発注 SELL → ブロック
+                    return (
+                        f"[BLOCKED] SELL {symbol} {qty}株 はガードレールにより拒否: "
+                        f"保有なし、かつ intentional_short=False。"
+                        f"意図的にショート建てる場合は intentional_short=True を指定 "
+                        f"(Path C 過熱反転シグナル経由のみ)。現在保有: {held_qty}株"
+                    )
+            except Exception as guard_exc:
+                return f"[GUARD-ERROR] 保有確認失敗のため SELL を拒否: {guard_exc}"
 
         if order_type == "market":
             req = MarketOrderRequest(
-                symbol=ticker.upper(),
+                symbol=symbol,
                 qty=qty,
                 side=order_side,
                 time_in_force=TimeInForce.DAY,
             )
         elif order_type == "limit" and limit_price is not None:
             req = LimitOrderRequest(
-                symbol=ticker.upper(),
+                symbol=symbol,
                 qty=qty,
                 side=order_side,
                 time_in_force=TimeInForce.DAY,
@@ -162,7 +229,7 @@ class PlaceOrderTool(BaseTool):
             order = client.submit_order(req)
             mode = "PAPER" if settings.is_paper_trading else "LIVE"
             return (
-                f"[{mode}] Order submitted: {side.upper()} {qty} {ticker.upper()} "
+                f"[{mode}] Order submitted: {side.upper()} {qty} {symbol} "
                 f"@ {order_type} | ID: {order.id} | Status: {order.status}"
             )
         except Exception as exc:

@@ -12,7 +12,7 @@ from trading.cache.database import get_db
 
 async def get_cached_bars(ticker: str, start: date, end: date) -> Optional[pd.DataFrame]:
     """Return cached OHLCV rows as a DataFrame, or None if not fully cached."""
-    async with await get_db() as db:
+    async with get_db() as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT date, open, high, low, close, volume FROM ohlcv "
@@ -44,7 +44,7 @@ async def save_bars(ticker: str, df: pd.DataFrame) -> int:
         )
         for idx, row in df.iterrows()
     ]
-    async with await get_db() as db:
+    async with get_db() as db:
         await db.executemany(
             "INSERT OR REPLACE INTO ohlcv (ticker, date, open, high, low, close, volume) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -57,7 +57,7 @@ async def save_bars(ticker: str, df: pd.DataFrame) -> int:
 async def save_alert(ticker: str, condition_type: str, threshold: float) -> int:
     """Insert an alert; returns its row id."""
     from datetime import datetime
-    async with await get_db() as db:
+    async with get_db() as db:
         cursor = await db.execute(
             "INSERT INTO alerts (ticker, condition_type, threshold, created_at) VALUES (?, ?, ?, ?)",
             (ticker, condition_type, threshold, datetime.utcnow().isoformat()),
@@ -68,7 +68,7 @@ async def save_alert(ticker: str, condition_type: str, threshold: float) -> int:
 
 async def get_active_alerts() -> list[dict]:
     """Return all active alert rows."""
-    async with await get_db() as db:
+    async with get_db() as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT * FROM alerts WHERE active = 1"
@@ -80,7 +80,7 @@ async def get_active_alerts() -> list[dict]:
 async def deactivate_alert(alert_id: int) -> None:
     """Mark an alert as triggered."""
     from datetime import datetime
-    async with await get_db() as db:
+    async with get_db() as db:
         await db.execute(
             "UPDATE alerts SET active = 0, triggered_at = ? WHERE id = ?",
             (datetime.utcnow().isoformat(), alert_id),
@@ -90,7 +90,7 @@ async def deactivate_alert(alert_id: int) -> None:
 
 async def save_order(order_data: dict) -> None:
     """Upsert an order record."""
-    async with await get_db() as db:
+    async with get_db() as db:
         await db.execute(
             "INSERT OR REPLACE INTO orders "
             "(order_id, ticker, side, qty, order_type, status, filled_at, filled_avg_price, created_at) "
