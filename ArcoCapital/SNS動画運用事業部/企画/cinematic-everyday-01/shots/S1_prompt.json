@@ -1,0 +1,20 @@
+{
+  "segment_id": "S1",
+  "theme": "Morning / 目覚め",
+  "subject": "woman's hand (hands only, no face, no portrait), fingertips touching sheer curtain, backlit by morning sunlight",
+  "action": "curtain slowly parted by hand, light spilling in, fingertips catching sunrise glow",
+  "style": "cinematic realism, 35mm film, shallow depth of field (f/1.4), film grain, warm sunrise palette (2700K accents on cool blue)",
+  "camera": "handheld slight jitter, low angle looking up toward light",
+  "duration_sec": 10.0,
+  "aspect_ratio": "9:16",
+  "resolution": "1080x1920",
+  "audio": "none",
+  "negative": "face, portrait, person's face, people visible from chest up, watermark, text overlay, logos, readable text",
+  "estimated_cost_jpy": 3500,
+  "l1_checks": {
+    "forbidden_terms_absent": true,
+    "duration_in_range": true,
+    "aspect_in_whitelist": true,
+    "negative_contains_face_portrait": true
+  }
+}

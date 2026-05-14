@@ -1,0 +1,20 @@
+{
+  "segment_id": "S2",
+  "theme": "Noon / 静寂",
+  "subject": "woman's hands only (no face visible, no chest-up body), one hand cradling a ceramic coffee cup with rising steam, other hand opening a hardcover book on wooden table",
+  "action": "steam rising lazily, book page turning slowly, hand settling on printed page",
+  "style": "cinematic realism, 35mm film, shallow depth of field (f/2), film grain, neutral daylight (5500K) with warm wood tones",
+  "camera": "45° overhead angle, static with micro handheld jitter",
+  "duration_sec": 10.0,
+  "aspect_ratio": "9:16",
+  "resolution": "1080x1920",
+  "audio": "none",
+  "negative": "face, portrait, person from chest up, watermark, text overlay, readable book text, logos",
+  "estimated_cost_jpy": 3500,
+  "l1_checks": {
+    "forbidden_terms_absent": true,
+    "duration_in_range": true,
+    "aspect_in_whitelist": true,
+    "negative_contains_face_portrait": true
+  }
+}
